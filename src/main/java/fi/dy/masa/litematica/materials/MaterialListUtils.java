@@ -23,16 +23,18 @@ import fi.dy.masa.malilib.registry.Registry;
 import fi.dy.masa.malilib.util.InventoryUtils;
 import fi.dy.masa.malilib.util.data.ItemType;
 import fi.dy.masa.malilib.util.nbt.NbtInventory;
+import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic.EntityInfo;
 import fi.dy.masa.litematica.schematic.container.LitematicaBlockStateContainer;
+import fi.dy.masa.litematica.util.InclusionType;
 
 public class MaterialListUtils
 {
     public static List<MaterialListEntry> createMaterialListFor(LitematicaSchematic schematic)
     {
-        return createMaterialListFor(schematic, schematic.getAreas().keySet());
+        return createMaterialList(schematic, schematic.getAreas().keySet(), InclusionType.NONE, InclusionType.NONE);
     }
 
     /**
@@ -96,7 +98,43 @@ public class MaterialListUtils
         return list;
     }
 
-    public static List<MaterialListEntry> createMaterialListFor(LitematicaSchematic schematic, Collection<String> subRegions)
+    public static List<MaterialListEntry> createMaterialList(LitematicaSchematic schematic, Collection<String> subRegions, InclusionType entitiesInclusionType, InclusionType containersInclusionType)
+    {
+        Object2IntOpenHashMap<ItemType> total = new Object2IntOpenHashMap<>();
+        Player player = Minecraft.getInstance().player;
+        Litematica.LOGGER.info("types {}, {}", entitiesInclusionType, containersInclusionType);
+
+        if (entitiesInclusionType != InclusionType.NONE) {
+            Object2IntOpenHashMap<ItemType> entitiesList = createEntitiesListFor(schematic, subRegions);
+            if (entitiesInclusionType == InclusionType.ONLY) {
+                return getMaterialListFromItems(entitiesList, entitiesList.clone(), new Object2IntOpenHashMap<>(), player);
+            }
+            for (ItemType itemType : entitiesList.keySet()) {
+                total.addTo(itemType, entitiesList.getInt(itemType));
+            }
+        }
+
+        Object2IntOpenHashMap<ItemType> blocksList = createMaterialListFor(schematic, subRegions);
+        for (ItemType itemType : blocksList.keySet()) {
+            total.addTo(itemType, blocksList.getInt(itemType));
+        }
+
+//        if (containersInclusionType != InclusionType.NONE) {
+//
+//            for (String regionName : subRegions) {
+//                Object2IntOpenHashMap<ItemType> entitiesList= createEntitiesListFor(schematic, subRegions);
+//                for (ItemType itemType : entitiesList.keySet()) {
+//                    total.addTo(itemType, entitiesList.getInt(itemType));
+//                }
+//            }
+//
+//            if (entitiesInclusionType == InclusionType.ONLY) return getMaterialListFromItems(total, total.clone(), new Object2IntOpenHashMap<>(), player);
+//        }
+
+        return getMaterialListFromItems(total, total.clone(), new Object2IntOpenHashMap<>(), player);
+    }
+
+    public static Object2IntOpenHashMap<ItemType> createMaterialListFor(LitematicaSchematic schematic, Collection<String> subRegions)
     {
         Object2IntOpenHashMap<BlockState> countsTotal = new Object2IntOpenHashMap<>();
 
@@ -124,13 +162,12 @@ public class MaterialListUtils
                 }
             }
         }
+        MaterialCache cache = MaterialCache.getInstance();
 
-        Minecraft mc = Minecraft.getInstance();
-
-        return getMaterialList(countsTotal, countsTotal.clone(), new Object2IntOpenHashMap<>(), mc.player);
+        return convertStatesToStacks(countsTotal, cache);
     }
 
-    public static List<MaterialListEntry> createEntitiesListFor(LitematicaSchematic schematic, Collection<String> subRegions)
+    public static Object2IntOpenHashMap<ItemType> createEntitiesListFor(LitematicaSchematic schematic, Collection<String> subRegions)
     {
 
         Object2IntOpenHashMap<ItemType> entitiesTotal = new Object2IntOpenHashMap<>();
@@ -150,8 +187,7 @@ public class MaterialListUtils
            }
         }
 
-        Minecraft mc = Minecraft.getInstance();
-        return getMaterialListFromItems(entitiesTotal, entitiesTotal.clone(), new Object2IntOpenHashMap<>(), mc.player);
+        return entitiesTotal;
     }
 
     public static List<MaterialListEntry> getMaterialListFromItems(

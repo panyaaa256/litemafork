@@ -6,6 +6,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
+import fi.dy.masa.litematica.Litematica;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 
