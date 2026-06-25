@@ -10,6 +10,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
@@ -23,7 +26,6 @@ import fi.dy.masa.malilib.registry.Registry;
 import fi.dy.masa.malilib.util.InventoryUtils;
 import fi.dy.masa.malilib.util.data.ItemType;
 import fi.dy.masa.malilib.util.nbt.NbtInventory;
-import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic.EntityInfo;
@@ -32,7 +34,7 @@ import fi.dy.masa.litematica.util.InclusionType;
 
 public class MaterialListUtils
 {
-    public static List<MaterialListEntry> createMaterialListFor(LitematicaSchematic schematic)
+    public static List<MaterialListEntry> createBlocksList(LitematicaSchematic schematic)
     {
         return createMaterialList(schematic, schematic.getAreas().keySet(), InclusionType.NONE, InclusionType.NONE);
     }
@@ -102,10 +104,9 @@ public class MaterialListUtils
     {
         Object2IntOpenHashMap<ItemType> total = new Object2IntOpenHashMap<>();
         Player player = Minecraft.getInstance().player;
-        Litematica.LOGGER.info("types {}, {}", entitiesInclusionType, containersInclusionType);
 
         if (entitiesInclusionType != InclusionType.NONE) {
-            Object2IntOpenHashMap<ItemType> entitiesList = createEntitiesListFor(schematic, subRegions);
+            Object2IntOpenHashMap<ItemType> entitiesList = createEntitiesList(schematic, subRegions);
             if (entitiesInclusionType == InclusionType.ONLY) {
                 return getMaterialListFromItems(entitiesList, entitiesList.clone(), new Object2IntOpenHashMap<>(), player);
             }
@@ -113,28 +114,26 @@ public class MaterialListUtils
                 total.addTo(itemType, entitiesList.getInt(itemType));
             }
         }
+        if (containersInclusionType != InclusionType.NONE) {
+            Object2IntOpenHashMap<ItemType> containersList = createContainersList(schematic, subRegions);
+            if (containersInclusionType == InclusionType.ONLY) {
+                return getMaterialListFromItems(containersList, containersList.clone(), new Object2IntOpenHashMap<>(), player);
+            }
+            for (ItemType itemType : containersList.keySet()) {
+                total.addTo(itemType, containersList.getInt(itemType));
+            }
+        }
 
-        Object2IntOpenHashMap<ItemType> blocksList = createMaterialListFor(schematic, subRegions);
+        Object2IntOpenHashMap<ItemType> blocksList = createBlocksList(schematic, subRegions);
         for (ItemType itemType : blocksList.keySet()) {
             total.addTo(itemType, blocksList.getInt(itemType));
         }
 
-//        if (containersInclusionType != InclusionType.NONE) {
-//
-//            for (String regionName : subRegions) {
-//                Object2IntOpenHashMap<ItemType> entitiesList= createEntitiesListFor(schematic, subRegions);
-//                for (ItemType itemType : entitiesList.keySet()) {
-//                    total.addTo(itemType, entitiesList.getInt(itemType));
-//                }
-//            }
-//
-//            if (entitiesInclusionType == InclusionType.ONLY) return getMaterialListFromItems(total, total.clone(), new Object2IntOpenHashMap<>(), player);
-//        }
 
         return getMaterialListFromItems(total, total.clone(), new Object2IntOpenHashMap<>(), player);
     }
 
-    public static Object2IntOpenHashMap<ItemType> createMaterialListFor(LitematicaSchematic schematic, Collection<String> subRegions)
+    public static Object2IntOpenHashMap<ItemType> createBlocksList(LitematicaSchematic schematic, Collection<String> subRegions)
     {
         Object2IntOpenHashMap<BlockState> countsTotal = new Object2IntOpenHashMap<>();
 
@@ -167,7 +166,7 @@ public class MaterialListUtils
         return convertStatesToStacks(countsTotal, cache);
     }
 
-    public static Object2IntOpenHashMap<ItemType> createEntitiesListFor(LitematicaSchematic schematic, Collection<String> subRegions)
+    public static Object2IntOpenHashMap<ItemType> createEntitiesList(LitematicaSchematic schematic, Collection<String> subRegions)
     {
 
         Object2IntOpenHashMap<ItemType> entitiesTotal = new Object2IntOpenHashMap<>();
@@ -180,7 +179,7 @@ public class MaterialListUtils
                    if (!id.isEmpty()) {
                        Identifier identifier = Identifier.tryParse(id);
                        Item item = BuiltInRegistries.ITEM.getValue(identifier);
-                       ItemType itemType = new ItemType(new ItemStack(item));
+                       ItemType itemType = new ItemType(new ItemStack(item), false);
                        entitiesTotal.addTo(itemType, 1);
                    }
                }
@@ -188,6 +187,36 @@ public class MaterialListUtils
         }
 
         return entitiesTotal;
+    }
+
+    public static Object2IntOpenHashMap<ItemType> createContainersList(LitematicaSchematic schematic, Collection<String> subRegions)
+    {
+        Object2IntOpenHashMap<ItemType> containersTotal = new Object2IntOpenHashMap<>();
+        for (String regionName : subRegions) {
+            Collection <CompoundTag> containersList = schematic.getBlockEntityMapForRegion(regionName).values();
+            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
+            ListTag listTag = new ListTag();
+            for (CompoundTag containerTag : containersList) {
+                listTag.addAll(containerTag.getListOrEmpty("Items"));
+            }
+            for (EntityInfo entityInfo : entitiesList) {
+                if (entityInfo.nbt.contains("Items")) {
+                    listTag.addAll(entityInfo.nbt.getListOrEmpty("Items"));
+                }
+            }
+                for (Tag tag : listTag) {
+                    if (tag instanceof CompoundTag) {
+                        Identifier identifier = Identifier.tryParse(((CompoundTag) tag).getStringOr("id", ""));
+                        Item item = BuiltInRegistries.ITEM.getValue(identifier);
+                        int count = ((CompoundTag) tag).getIntOr("count", 0);
+                        ItemType itemType = new ItemType(new ItemStack(item), false);
+                        containersTotal.addTo(itemType, count);
+                    }
+                }
+
+        }
+
+        return containersTotal;
     }
 
     public static List<MaterialListEntry> getMaterialListFromItems(
