@@ -308,7 +308,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.ignoreBlockRegistry = new IgnoreBlockRegistry();
 
         this.setCompletionListener(completionListener);
-        this.requiredChunks.addAll(schematicPlacement.getTouchedChunks(SubRegionPlacement.RequiredEnabled.PLACEMENT_ENABLED));
+        this.requiredChunks.addAll(schematicPlacement.getTouchedChunks(SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED));
         this.totalRequiredChunks = this.requiredChunks.size();
         this.verificationStarted = true;
 
@@ -495,7 +495,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 {
                     ChunkAccess chunkClient = this.worldClient.getChunk(pos.x(), pos.z());
                     ChunkAccess chunkSchematic = this.worldSchematic.getChunk(pos.x(), pos.z());
-                    Map<String, IntBoundingBox> boxes = this.schematicPlacement.getBoxesWithinChunk(pos.x(), pos.z());
+                    Map<String, IntBoundingBox> boxes = this.schematicPlacement.getBoxesWithinChunk(pos.x(), pos.z(), SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED);
 
                     for (IntBoundingBox box : boxes.values())
                     {
