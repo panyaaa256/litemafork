@@ -880,10 +880,14 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
     {
         if (this.hasWorld())
         {
+            LayerRange layerRange = DataManager.getRenderLayerRange();
+
             for (Entity e : this.world.getEntities().getAll())
             {
                 if (!e.isInvisible() &&
+                    e.shouldRender(cameraX, cameraY, cameraZ) &&
                     frustum.isVisible(e.getBoundingBox()) &&
+                    layerRange.isPositionWithinRange(MathUtils.floor(e.getX()), MathUtils.floor(e.getY()), MathUtils.floor(e.getZ())) &&
                     (e != this.mc.getCameraEntity() || this.mc.options.getCameraType() != CameraType.FIRST_PERSON))
                 {
 	                invoker.litematica$addEntityHitbox(e, ticks, false);
