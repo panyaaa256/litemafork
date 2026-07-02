@@ -393,7 +393,16 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     @Override
     public void stop()
     {
+        // This gets called when the task is removed from the scheduler,
+        // for example when the user cancels it from the task manager GUI.
+        // Clean up the verifier state so that the unseen chunks info HUD
+        // entry doesn't linger around after the task is gone.
+        // The scheduler is already removing this task, so this must not
+        // call TaskScheduler.removeTask() (which would call stop() again).
         // Don't call notifyListeners
+        this.stopVerification();
+        this.clearReferences();
+        this.clearState();
     }
 
     public void startVerification(ClientLevel worldClient, WorldSchematic worldSchematic,
@@ -450,6 +459,12 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void clearData()
     {
+        this.clearState();
+        TaskScheduler.getInstanceClient().removeTask(this);
+    }
+
+    private void clearState()
+    {
         this.verificationActive = false;
         this.verificationStarted = false;
         this.finished = false;
@@ -480,7 +495,6 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.entityMismatchPositionsForRender.clear();
 
         ACTIVE_VERIFIERS.remove(this);
-        TaskScheduler.getInstanceClient().removeTask(this);
 
         InfoHud.getInstance().removeInfoHudRenderer(this, false);
         this.clearActiveMismatchRenderPositions();
