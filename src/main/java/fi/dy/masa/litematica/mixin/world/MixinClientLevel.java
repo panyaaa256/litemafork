@@ -13,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -39,6 +40,23 @@ public abstract class MixinClientLevel extends Level
             Configs.Visuals.ENABLE_SCHEMATIC_RENDERING.getBooleanValue())
         {
             SchematicWorldRefresher.INSTANCE.markSchematicChunkForRenderUpdate(pos);
+        }
+    }
+
+    @Inject(method = "addEntity", at = @At("TAIL"))
+    private void litematica_onEntityAdded(Entity entity, CallbackInfo ci)
+    {
+        SchematicVerifier.markVerifierEntityAdded(entity);
+    }
+
+    @Inject(method = "removeEntity", at = @At("HEAD"))
+    private void litematica_onEntityRemoved(int entityId, Entity.RemovalReason reason, CallbackInfo ci)
+    {
+        Entity entity = ((ClientLevel) (Object) this).getEntity(entityId);
+
+        if (entity != null)
+        {
+            SchematicVerifier.markVerifierEntityRemoved(entity);
         }
     }
 }

@@ -8,9 +8,20 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
@@ -48,6 +59,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> wrongBlocksPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> wrongStatesPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> diffBlocksPositions = ArrayListMultimap.create();
+    private final ArrayListMultimap<EntityType<?>, MissingEntityEntry> missingEntitiesPositions = ArrayListMultimap.create();
+    private final Object2ObjectOpenHashMap<EntityType<?>, ItemStack> entityMismatchStacks = new Object2ObjectOpenHashMap<>();
+    private final Set<UUID> usedClientEntityUuids = new HashSet<>();
+    private final Map<UUID, MissingEntityEntry> matchedClientEntities = new HashMap<>();
+    private final Set<EntityMismatch> selectedEntityEntries = new HashSet<>();
+    private final Set<UUID> entityHighlightUuids = new HashSet<>();
+    private final List<MismatchRenderPos> entityMismatchPositionsForRender = new ArrayList<>();
     private final Object2IntOpenHashMap<BlockState> correctStateCounts = new Object2IntOpenHashMap<>();
     private final Object2ObjectOpenHashMap<BlockPos, BlockMismatch> blockMismatches = new Object2ObjectOpenHashMap<>();
     private final HashSet<Pair<BlockState, BlockState>> ignoredMismatches = new HashSet<>();
@@ -93,6 +111,56 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 	    {
 		    activeVerifier.markBlockChanged(pos);
 	    }
+    }
+
+    public static void markVerifierEntityAdded(Entity entity)
+    {
+        for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
+        {
+            activeVerifier.onClientEntityAdded(entity);
+        }
+    }
+
+    public static void markVerifierEntityRemoved(Entity entity)
+    {
+        for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
+        {
+            activeVerifier.onClientEntityRemoved(entity);
+        }
+    }
+
+    /**
+     * Whether the schematic world entity with the given UUID should be rendered
+     * with the vanilla glow outline, because it is a currently selected missing entity
+     * in one of the active verifiers.
+     */
+    public static boolean shouldHighlightSchematicEntity(UUID uuid)
+    {
+        for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
+        {
+            if (activeVerifier.entityHighlightUuids.contains(uuid))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Entities that move around on their own (mobs) or are transient (items, XP orbs,
+     * projectiles) can't be meaningfully position-verified, so they are skipped.
+     */
+    public static boolean isVerifiableEntity(Entity entity)
+    {
+        if (entity instanceof LivingEntity && (entity instanceof ArmorStand) == false)
+        {
+            return false;
+        }
+
+        return (entity instanceof ItemEntity ||
+                entity instanceof ExperienceOrb ||
+                entity instanceof Projectile) == false;
     }
 
     @Override
@@ -167,6 +235,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         return this.diffBlocksPositions.size();
     }
 
+    public int getMissingEntities()
+    {
+        return this.missingEntitiesPositions.size();
+    }
+
     public int getCorrectStatesCount()
     {
         return this.correctStatesCount;
@@ -178,7 +251,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 this.getMismatchedStates() +
                 this.getExtraBlocks() +
                 this.getMissingBlocks() +
-                this.getDiffBlocks();
+                this.getDiffBlocks() +
+                this.getMissingEntities();
     }
 
     public SortCriteria getSortCriteria()
@@ -246,6 +320,31 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private void removeSelectedEntriesOfType(MismatchType type)
     {
         this.selectedEntries.removeAll(type);
+
+        if (type == MismatchType.MISSING_ENTITY)
+        {
+            this.selectedEntityEntries.clear();
+        }
+    }
+
+    public void toggleEntityMismatchEntrySelected(EntityMismatch mismatch)
+    {
+        if (this.selectedEntityEntries.contains(mismatch))
+        {
+            this.selectedEntityEntries.remove(mismatch);
+        }
+        else
+        {
+            this.selectedCategories.remove(MismatchType.MISSING_ENTITY);
+            this.selectedEntityEntries.add(mismatch);
+        }
+
+        this.updateMismatchOverlays();
+    }
+
+    public boolean isEntityMismatchEntrySelected(EntityMismatch mismatch)
+    {
+        return this.selectedEntityEntries.contains(mismatch);
     }
 
     public boolean isMismatchCategorySelected(MismatchType type)
@@ -262,6 +361,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         this.mismatchPositionsForRender.clear();
         this.mismatchBlockPositionsForRender.clear();
+        this.entityMismatchPositionsForRender.clear();
+        this.entityHighlightUuids.clear();
         this.infoHudLines.clear();
     }
 
@@ -370,6 +471,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.selectedEntries.clear();
         this.mismatchBlockPositionsForRender.clear();
         this.mismatchPositionsForRender.clear();
+        this.missingEntitiesPositions.clear();
+        this.entityMismatchStacks.clear();
+        this.usedClientEntityUuids.clear();
+        this.matchedClientEntities.clear();
+        this.selectedEntityEntries.clear();
+        this.entityHighlightUuids.clear();
+        this.entityMismatchPositionsForRender.clear();
 
         ACTIVE_VERIFIERS.remove(this);
         TaskScheduler.getInstanceClient().removeTask(this);
@@ -616,6 +724,19 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
     }
 
+    public List<EntityMismatch> getEntityMismatchOverview()
+    {
+        List<EntityMismatch> list = new ArrayList<>();
+
+        for (EntityType<?> type : this.missingEntitiesPositions.keySet())
+        {
+            ItemStack stack = this.entityMismatchStacks.getOrDefault(type, ItemStack.EMPTY);
+            list.add(new EntityMismatch(MismatchType.MISSING_ENTITY, type, stack, this.missingEntitiesPositions.get(type).size()));
+        }
+
+        return list;
+    }
+
     public List<Pair<BlockState, BlockState>> getIgnoredStateMismatchPairs(GuiBase gui)
     {
         List<Pair<BlockState, BlockState>> list = Lists.newArrayList(this.ignoredMismatches);
@@ -691,7 +812,148 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             }
         }
 
+        this.verifyEntitiesInBox(chunkSchematic.getPos(), startX, startY, startZ, endX, endY, endZ);
+
         return true;
+    }
+
+    private void verifyEntitiesInBox(ChunkPos chunkPos, int startX, int startY, int startZ, int endX, int endY, int endZ)
+    {
+        List<Entity> schematicEntities = this.worldSchematic.getEntitiesByChunk(chunkPos.x, chunkPos.z, SchematicVerifier::isVerifiableEntity);
+        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+
+        for (Entity schematicEntity : schematicEntities)
+        {
+            int x = (int) Math.floor(schematicEntity.getX());
+            int y = (int) Math.floor(schematicEntity.getY());
+            int z = (int) Math.floor(schematicEntity.getZ());
+
+            if (x < startX || x > endX || y < startY || y > endY || z < startZ || z > endZ)
+            {
+                continue;
+            }
+
+            MissingEntityEntry entry = new MissingEntityEntry(schematicEntity.getType(), schematicEntity.getUUID(), schematicEntity.position());
+            this.cacheEntityMismatchStack(schematicEntity);
+            Entity match = this.findMatchingClientEntity(schematicEntity.getType(), schematicEntity.position(), tolerance);
+
+            if (match != null)
+            {
+                this.usedClientEntityUuids.add(match.getUUID());
+                this.matchedClientEntities.put(match.getUUID(), entry);
+            }
+            else
+            {
+                this.missingEntitiesPositions.put(schematicEntity.getType(), entry);
+            }
+        }
+    }
+
+    /**
+     * Finds the closest not-yet-matched client world entity of the given type
+     * within the position tolerance. Already matched entities are tracked by their UUID,
+     * so overlapping entities (e.g. two minecarts in the same spot) each require
+     * their own counterpart in the client world.
+     */
+    @Nullable
+    private Entity findMatchingClientEntity(EntityType<?> type, Vec3 pos, double tolerance)
+    {
+        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
+        List<Entity> candidates = this.worldClient.getEntities((Entity) null, searchBox,
+                e -> e.getType() == type &&
+                     isVerifiableEntity(e) &&
+                     this.usedClientEntityUuids.contains(e.getUUID()) == false &&
+                     e.position().distanceTo(pos) <= tolerance);
+
+        Entity closest = null;
+        double closestDistSq = Double.MAX_VALUE;
+
+        for (Entity candidate : candidates)
+        {
+            double distSq = candidate.position().distanceToSqr(pos);
+
+            if (distSq < closestDistSq)
+            {
+                closestDistSq = distSq;
+                closest = candidate;
+            }
+        }
+
+        return closest;
+    }
+
+    private void cacheEntityMismatchStack(Entity schematicEntity)
+    {
+        EntityType<?> type = schematicEntity.getType();
+
+        if (this.entityMismatchStacks.containsKey(type) == false)
+        {
+            ItemStack stack = ItemStack.EMPTY;
+
+            try
+            {
+                stack = schematicEntity.getPickResult();
+            }
+            catch (Exception ignored) { }
+
+            if (stack == null || stack.isEmpty())
+            {
+                SpawnEggItem egg = SpawnEggItem.byId(type);
+                stack = egg != null ? new ItemStack(egg) : ItemStack.EMPTY;
+            }
+
+            this.entityMismatchStacks.put(type, stack);
+        }
+    }
+
+    private void onClientEntityAdded(Entity entity)
+    {
+        if (this.finished == false || isVerifiableEntity(entity) == false ||
+            this.usedClientEntityUuids.contains(entity.getUUID()))
+        {
+            return;
+        }
+
+        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+        List<MissingEntityEntry> entries = this.missingEntitiesPositions.get(entity.getType());
+        MissingEntityEntry closest = null;
+        double closestDistSq = Double.MAX_VALUE;
+
+        for (MissingEntityEntry entry : entries)
+        {
+            double distSq = entry.pos.distanceToSqr(entity.position());
+
+            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
+            {
+                closestDistSq = distSq;
+                closest = entry;
+            }
+        }
+
+        if (closest != null)
+        {
+            this.missingEntitiesPositions.remove(entity.getType(), closest);
+            this.usedClientEntityUuids.add(entity.getUUID());
+            this.matchedClientEntities.put(entity.getUUID(), closest);
+            this.updateMismatchOverlays();
+        }
+    }
+
+    private void onClientEntityRemoved(Entity entity)
+    {
+        if (this.finished == false)
+        {
+            return;
+        }
+
+        MissingEntityEntry entry = this.matchedClientEntities.remove(entity.getUUID());
+
+        if (entry != null)
+        {
+            this.usedClientEntityUuids.remove(entity.getUUID());
+            this.missingEntitiesPositions.put(entry.entityType, entry);
+            this.updateMismatchOverlays();
+        }
     }
 
     private void checkBlockStates(int x, int y, int z, BlockState stateSchematic, BlockState stateClient)
@@ -784,18 +1046,67 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             BlockPos centerPos = BlockPos.containing(this.mc.player.position());
             this.updateClosestPositions(centerPos, maxEntries);
             this.combineClosestPositions(centerPos, maxEntries);
+            this.updateSelectedEntityHighlights(centerPos);
+
+            List<MismatchRenderPos> hudList = this.mismatchPositionsForRender;
+
+            // The missing entities are not rendered as boxes, but they should still
+            // show up in the Info HUD position list
+            if (this.entityMismatchPositionsForRender.isEmpty() == false)
+            {
+                List<MismatchRenderPos> combined = new ArrayList<>(this.mismatchPositionsForRender);
+                combined.addAll(this.entityMismatchPositionsForRender);
+                combined.sort(new RenderPosComparator(centerPos, true));
+
+                if (combined.size() > maxEntries)
+                {
+                    combined = combined.subList(0, maxEntries);
+                }
+
+                hudList = combined;
+            }
 
             // Only one category selected, show the title
-            if (this.selectedCategories.size() == 1 && this.selectedEntries.size() == 0)
+            if (this.selectedCategories.size() == 1 && this.selectedEntries.size() == 0 && this.selectedEntityEntries.isEmpty())
             {
-                MismatchType type = this.mismatchPositionsForRender.size() > 0 ? this.mismatchPositionsForRender.get(0).type : null;
-                this.updateMismatchPositionStringList(type, this.mismatchPositionsForRender);
+                MismatchType type = hudList.size() > 0 ? hudList.get(0).type : null;
+                this.updateMismatchPositionStringList(type, hudList);
             }
             else
             {
-                this.updateMismatchPositionStringList(null, this.mismatchPositionsForRender);
+                this.updateMismatchPositionStringList(null, hudList);
             }
         }
+    }
+
+    private void updateSelectedEntityHighlights(BlockPos centerPos)
+    {
+        this.entityHighlightUuids.clear();
+        this.entityMismatchPositionsForRender.clear();
+
+        List<MissingEntityEntry> entries;
+
+        if (this.selectedCategories.contains(MismatchType.MISSING_ENTITY))
+        {
+            entries = new ArrayList<>(this.missingEntitiesPositions.values());
+        }
+        else
+        {
+            entries = new ArrayList<>();
+
+            for (EntityMismatch mismatch : this.selectedEntityEntries)
+            {
+                entries.addAll(this.missingEntitiesPositions.get(mismatch.entityType));
+            }
+        }
+
+        for (MissingEntityEntry entry : entries)
+        {
+            this.entityHighlightUuids.add(entry.schematicEntityUuid);
+            this.entityMismatchPositionsForRender.add(new MismatchRenderPos(MismatchType.MISSING_ENTITY, BlockPos.containing(entry.pos)));
+        }
+
+        this.entityMismatchPositionsForRender.sort(new RenderPosComparator(centerPos, true));
     }
 
     private void updateClosestPositions(BlockPos centerPos, int maxEntries)
@@ -1002,6 +1313,74 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
     }
 
+    /**
+     * A per-EntityType summary row of missing entities, for the verifier GUI list.
+     */
+    public static class EntityMismatch implements Comparable<EntityMismatch>
+    {
+        public final MismatchType mismatchType;
+        public final EntityType<?> entityType;
+        public final ItemStack stack;
+        public final int count;
+
+        public EntityMismatch(MismatchType mismatchType, EntityType<?> entityType, ItemStack stack, int count)
+        {
+            this.mismatchType = mismatchType;
+            this.entityType = entityType;
+            this.stack = stack;
+            this.count = count;
+        }
+
+        public String getDisplayName()
+        {
+            return this.entityType.getDescription().getString();
+        }
+
+        @Override
+        public int compareTo(EntityMismatch other)
+        {
+            return this.count > other.count ? -1 : (this.count < other.count ? 1 : 0);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + ((mismatchType == null) ? 0 : mismatchType.hashCode());
+            result = prime * result + ((entityType == null) ? 0 : entityType.hashCode());
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj)
+        {
+            if (this == obj)
+                return true;
+            if (obj == null || getClass() != obj.getClass())
+                return false;
+            EntityMismatch other = (EntityMismatch) obj;
+            return this.mismatchType == other.mismatchType && this.entityType == other.entityType;
+        }
+    }
+
+    /**
+     * One individual schematic entity that has no matching client world entity (yet).
+     */
+    public static class MissingEntityEntry
+    {
+        public final EntityType<?> entityType;
+        public final UUID schematicEntityUuid;
+        public final Vec3 pos;
+
+        public MissingEntityEntry(EntityType<?> entityType, UUID schematicEntityUuid, Vec3 pos)
+        {
+            this.entityType = entityType;
+            this.schematicEntityUuid = schematicEntityUuid;
+            this.pos = pos;
+        }
+    }
+
     public static class MismatchRenderPos
     {
         public final MismatchType type;
@@ -1044,6 +1423,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         ALL             (0xFF0000, "litematica.gui.label.schematic_verifier_display_type.all", GuiBase.TXT_WHITE),
         MISSING         (0x00FFFF, "litematica.gui.label.schematic_verifier_display_type.missing", GuiBase.TXT_AQUA),
+        MISSING_ENTITY  (0xAA00AA, "litematica.gui.label.schematic_verifier_display_type.missing_entities", GuiBase.TXT_DARK_PURPLE),
         EXTRA           (0xFF00CF, "litematica.gui.label.schematic_verifier_display_type.extra", GuiBase.TXT_LIGHT_PURPLE),
         WRONG_BLOCK     (0xFF0000, "litematica.gui.label.schematic_verifier_display_type.wrong_blocks", GuiBase.TXT_RED),
         WRONG_STATE     (0xFFAF00, "litematica.gui.label.schematic_verifier_display_type.wrong_state", GuiBase.TXT_GOLD),
