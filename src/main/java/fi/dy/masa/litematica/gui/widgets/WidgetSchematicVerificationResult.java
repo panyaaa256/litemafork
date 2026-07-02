@@ -25,6 +25,7 @@ import fi.dy.masa.litematica.gui.GuiSchematicVerifier.BlockMismatchEntry;
 import fi.dy.masa.litematica.gui.Icons;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.BlockMismatch;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.EntityMismatch;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.MismatchType;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.SortCriteria;
 import fi.dy.masa.litematica.util.ItemUtils;
@@ -84,6 +85,16 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
             this.count = 0;
             this.buttonIgnore = null;
         }
+        // Missing entity entry
+        else if (entry.entityMismatch != null)
+        {
+            this.header1 = null;
+            this.header2 = null;
+            this.header3 = null;
+            this.mismatchInfo = null;
+            this.count = entry.entityMismatch.count;
+            this.buttonIgnore = null;
+        }
         // Mismatch entry
         else
         {
@@ -104,7 +115,7 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
         }
     }
 
-    public static void setMaxNameLengths(List<BlockMismatch> mismatches)
+    public static void setMaxNameLengths(List<BlockMismatch> mismatches, List<EntityMismatch> entityMismatches)
     {
         maxNameLengthExpected = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADER_EXPECTED) + GuiBase.TXT_RST);
         maxNameLengthFound    = StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADER_FOUND) + GuiBase.TXT_RST);
@@ -119,6 +130,11 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
             stack = ItemUtils.getItemForState(entry.stateFound());
             name = BlockMismatchInfo.getDisplayName(entry.stateFound(), stack);
             maxNameLengthFound = Math.max(maxNameLengthFound, StringUtils.getStringWidth(name));
+        }
+
+        for (EntityMismatch entry : entityMismatches)
+        {
+            maxNameLengthExpected = Math.max(maxNameLengthExpected, StringUtils.getStringWidth(entry.getDisplayName()));
         }
 
         maxCountLength = Math.max(maxCountLength, StringUtils.getStringWidth(GuiBase.TXT_BOLD + StringUtils.translate(HEADER_COUNT) + GuiBase.TXT_RST));
@@ -209,6 +225,11 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
         }
         else if (this.mismatchEntry.type == BlockMismatchEntry.Type.DATA)
         {
+            if (this.mismatchEntry.entityMismatch != null)
+            {
+                return this.verifier.isEntityMismatchEntrySelected(this.mismatchEntry.entityMismatch);
+            }
+
             return this.verifier.isMismatchEntrySelected(this.mismatchEntry.blockMismatch);
         }
 
@@ -262,6 +283,22 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
         else if (this.header1 != null)
         {
             this.drawString(ctx, this.x + 4, this.y + 7, color, this.header1);
+        }
+        else if (this.mismatchEntry.entityMismatch != null)
+        {
+            this.drawString(ctx, x1 + 20, y, color, this.mismatchEntry.entityMismatch.getDisplayName());
+            this.drawString(ctx, x3, y, color, String.valueOf(this.count));
+
+            y = this.y + 3;
+            RenderUtils.drawRect(ctx, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
+
+            ItemStack stack = this.mismatchEntry.entityMismatch.stack;
+
+            if (stack.isEmpty() == false)
+            {
+                ctx.renderItem(stack, x1, y);
+                ctx.renderItemDecorations(this.textRenderer, stack, x1, y);
+            }
         }
         else if (this.mismatchInfo != null &&
                 (this.mismatchEntry.mismatchType != MismatchType.CORRECT_STATE ||

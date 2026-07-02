@@ -12,6 +12,7 @@ import fi.dy.masa.litematica.render.infohud.RenderPhase;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.BlockMismatch;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.EntityMismatch;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.MismatchType;
 import fi.dy.masa.litematica.util.BlockInfoListType;
 import fi.dy.masa.litematica.world.SchematicWorldHandler;
@@ -49,7 +50,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
 
         if (verifier != verifierLast)
         {
-            WidgetSchematicVerificationResult.setMaxNameLengths(verifier.getMismatchOverviewCombined());
+            WidgetSchematicVerificationResult.setMaxNameLengths(verifier.getMismatchOverviewCombined(), verifier.getEntityMismatchOverview());
             verifierLast = verifier;
         }
     }
@@ -91,6 +92,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_WRONG_STATES) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_EXTRA) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING) + 4;
+        x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING_ENTITIES) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_CORRECT) + 4;
 
         if (Configs.Generic.ENABLE_DIFFERENT_BLOCKS.getBooleanValue())
@@ -179,6 +181,11 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
                 enabled = resultMode != MismatchType.MISSING;
                 break;
 
+            case SET_RESULT_MODE_MISSING_ENTITIES:
+                label = MismatchType.MISSING_ENTITY.getDisplayname();
+                enabled = resultMode != MismatchType.MISSING_ENTITY;
+                break;
+
             case SET_RESULT_MODE_CORRECT:
                 label = MismatchType.CORRECT_STATE.getDisplayname();
                 enabled = resultMode != MismatchType.CORRECT_STATE;
@@ -264,7 +271,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
         if (GuiUtils.getCurrentScreen() == this)
         {
             SchematicVerifier verifier = this.verifier;
-            WidgetSchematicVerificationResult.setMaxNameLengths(verifier.getMismatchOverviewCombined());
+            WidgetSchematicVerificationResult.setMaxNameLengths(verifier.getMismatchOverviewCombined(), verifier.getEntityMismatchOverview());
             this.initGui();
         }
     }
@@ -288,6 +295,11 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             else if (entry.type == BlockMismatchEntry.Type.DATA && entry.blockMismatch != null)
             {
                 this.verifier.toggleMismatchEntrySelected(entry.blockMismatch);
+            }
+            // A missing entity type entry - highlight only those entities
+            else if (entry.type == BlockMismatchEntry.Type.DATA && entry.entityMismatch != null)
+            {
+                this.verifier.toggleEntityMismatchEntrySelected(entry.entityMismatch);
             }
 
             if (Configs.InfoOverlays.VERIFIER_OVERLAY_ENABLED.getBooleanValue() == false)
@@ -320,6 +332,8 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
         @Nullable
         public final BlockMismatch blockMismatch;
         @Nullable
+        public final EntityMismatch entityMismatch;
+        @Nullable
         public final String header1;
         @Nullable
         public final String header2;
@@ -329,6 +343,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             this.type = Type.CATEGORY_TITLE;
             this.mismatchType = mismatchType;
             this.blockMismatch = null;
+            this.entityMismatch = null;
             this.header1 = title;
             this.header2 = null;
         }
@@ -338,6 +353,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             this.type = Type.HEADER;
             this.mismatchType = null;
             this.blockMismatch = null;
+            this.entityMismatch = null;
             this.header1 = header1;
             this.header2 = header2;
         }
@@ -347,6 +363,17 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             this.type = Type.DATA;
             this.mismatchType = mismatchType;
             this.blockMismatch = blockMismatch;
+            this.entityMismatch = null;
+            this.header1 = null;
+            this.header2 = null;
+        }
+
+        public BlockMismatchEntry(EntityMismatch entityMismatch)
+        {
+            this.type = Type.DATA;
+            this.mismatchType = entityMismatch.mismatchType;
+            this.blockMismatch = null;
+            this.entityMismatch = entityMismatch;
             this.header1 = null;
             this.header2 = null;
         }
@@ -357,6 +384,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             final int prime = 31;
             int result = 1;
             result = prime * result + ((blockMismatch == null) ? 0 : blockMismatch.hashCode());
+            result = prime * result + ((entityMismatch == null) ? 0 : entityMismatch.hashCode());
             result = prime * result + ((header1 == null) ? 0 : header1.hashCode());
             result = prime * result + ((header2 == null) ? 0 : header2.hashCode());
             result = prime * result + ((mismatchType == null) ? 0 : mismatchType.hashCode());
@@ -378,6 +406,11 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
                 if (other.blockMismatch != null) { return false; }
             }
             else if (!blockMismatch.equals(other.blockMismatch)) { return false; }
+            if (entityMismatch == null)
+            {
+                if (other.entityMismatch != null) { return false; }
+            }
+            else if (!entityMismatch.equals(other.entityMismatch)) { return false; }
             if (header1 == null)
             {
                 if (other.header1 != null) { return false; }
@@ -439,6 +472,10 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
 
                 case SET_RESULT_MODE_MISSING:
                     this.parent.setResultMode(MismatchType.MISSING);
+                    break;
+
+                case SET_RESULT_MODE_MISSING_ENTITIES:
+                    this.parent.setResultMode(MismatchType.MISSING_ENTITY);
                     break;
 
                 case SET_RESULT_MODE_CORRECT:
@@ -514,6 +551,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             SET_RESULT_MODE_WRONG_STATES,
             SET_RESULT_MODE_EXTRA,
             SET_RESULT_MODE_MISSING,
+            SET_RESULT_MODE_MISSING_ENTITIES,
             SET_RESULT_MODE_CORRECT,
             START,
             STOP,

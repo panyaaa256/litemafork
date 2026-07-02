@@ -89,6 +89,7 @@ import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.mixin.entity.IMixinEntity;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
 import fi.dy.masa.litematica.render.IWorldSchematicRenderer;
 import fi.dy.masa.litematica.util.invoker.IAvatarInvoker;
 import fi.dy.masa.litematica.util.invoker.IEntityHitboxDebugRendererInvoker;
@@ -1418,6 +1419,15 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
                         }
 
 						EntityRenderState state = this.getEntityRenderer().extractEntity(entityTmp, tickProgress);
+
+                        // Highlight the schematic entities of currently selected "missing entity"
+                        // verifier results with the vanilla glow outline
+                        if (SchematicVerifier.shouldHighlightSchematicEntity(entityTmp.getUUID()))
+                        {
+                            state.outlineColor = 0xFF000000 | Configs.Colors.VERIFIER_ENTITY_HIGHLIGHT_COLOR.getIntegerValue();
+                            renderStates.haveGlowingEntities = true;
+                        }
+
 						this.getSchematicRenderState().entityStates.add(state);
 
                         this.renderedEntities.put(entityTmp.position(), entityTmp.getUUID());
