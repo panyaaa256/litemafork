@@ -136,6 +136,7 @@ public class Configs implements IConfigHandler
         public static final ConfigOptionList    TRANSLATION_LANGUAGE        = new ConfigOptionList("translationLanguage", new i18nConfig(LANG.orElseThrow())).apply(GENERIC_KEY);
         public static final ConfigOptionList    TRANSLATION_MODE            = new ConfigOptionList("translationMode",     i18nMode.FOLLOW_VANILLA).apply(GENERIC_KEY);
         public static final ConfigBoolean       UNHIDE_SCHEMATIC_PROJECTS   = new ConfigBoolean("unhideSchematicVCS", false).apply(GENERIC_KEY);
+        public static final ConfigDouble        VERIFIER_ENTITY_TOLERANCE   = new ConfigDouble("verifierEntityPositionTolerance", 0.1, 0, 8).apply(GENERIC_KEY);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 PLACEMENT_MANAGER_THREAD_COUNT,
@@ -212,6 +213,7 @@ public class Configs implements IConfigHandler
                 SIGN_TEXT_PASTE,
                 TOOL_ITEM_ENABLED,
                 UNHIDE_SCHEMATIC_PROJECTS,
+                VERIFIER_ENTITY_TOLERANCE,
 
                 PASTE_REPLACE_BEHAVIOR,
                 PASTE_LAYER_BEHAVIOR,
@@ -447,6 +449,7 @@ public class Configs implements IConfigHandler
         public static final ConfigColor SCHEMATIC_OVERLAY_COLOR_MISSING     = new ConfigColor("schematicOverlayColorMissing",       "#2C33B3E6").apply(COLORS_KEY);
         public static final ConfigColor SCHEMATIC_OVERLAY_COLOR_WRONG_BLOCK = new ConfigColor("schematicOverlayColorWrongBlock",    "#4CFF3333").apply(COLORS_KEY);
         public static final ConfigColor SCHEMATIC_OVERLAY_COLOR_WRONG_STATE = new ConfigColor("schematicOverlayColorWrongState",    "#4CFF9010").apply(COLORS_KEY);
+        public static final ConfigColor VERIFIER_ENTITY_HIGHLIGHT_COLOR     = new ConfigColor("verifierEntityHighlightColor",       "#FFAA00AA").apply(COLORS_KEY);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 AREA_SELECTION_BOX_SIDE_COLOR,
@@ -459,7 +462,8 @@ public class Configs implements IConfigHandler
                 SCHEMATIC_OVERLAY_COLOR_EXTRA,
                 SCHEMATIC_OVERLAY_COLOR_MISSING,
                 SCHEMATIC_OVERLAY_COLOR_WRONG_BLOCK,
-                SCHEMATIC_OVERLAY_COLOR_WRONG_STATE
+                SCHEMATIC_OVERLAY_COLOR_WRONG_STATE,
+                VERIFIER_ENTITY_HIGHLIGHT_COLOR
         );
     }
 

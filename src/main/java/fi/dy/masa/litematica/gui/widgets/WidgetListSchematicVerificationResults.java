@@ -15,8 +15,11 @@ import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.gui.GuiSchematicVerifier;
 import fi.dy.masa.litematica.gui.GuiSchematicVerifier.BlockMismatchEntry;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.BlockMismatch;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.EntityMismatch;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.MismatchType;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.SortCriteria;
 import fi.dy.masa.litematica.schematic.verifier.VerifierResultSorter;
 import fi.dy.masa.litematica.util.ItemUtils;
 
@@ -96,6 +99,11 @@ public class WidgetListSchematicVerificationResults extends WidgetListBase<Block
             this.addEntriesForType(MismatchType.WRONG_STATE);
             this.addEntriesForType(MismatchType.EXTRA);
             this.addEntriesForType(MismatchType.MISSING);
+            this.addMissingEntityEntries();
+        }
+        else if (type == MismatchType.MISSING_ENTITY)
+        {
+            this.addMissingEntityEntries();
         }
         else
         {
@@ -162,6 +170,40 @@ public class WidgetListSchematicVerificationResults extends WidgetListBase<Block
         for (BlockMismatch mismatch : list)
         {
             this.listContents.add(new BlockMismatchEntry(type, mismatch));
+        }
+    }
+
+    private void addMissingEntityEntries()
+    {
+        MismatchType type = MismatchType.MISSING_ENTITY;
+        String title = type.getFormattingCode() + type.getDisplayname() + TXT_RST;
+        this.listContents.add(new BlockMismatchEntry(type, title));
+
+        SchematicVerifier verifier = this.guiSchematicVerifier.getPlacement().getSchematicVerifier();
+        List<EntityMismatch> list = verifier.getEntityMismatchOverview();
+
+        boolean reverse = verifier.getSortInReverse();
+        SortCriteria sortCriteria = verifier.getSortCriteria();
+
+        list.sort((entry1, entry2) -> {
+            if (sortCriteria == SortCriteria.COUNT && entry1.count != entry2.count)
+            {
+                return (entry1.count > entry2.count) != reverse ? -1 : 1;
+            }
+
+            int res = entry1.getDisplayName().compareTo(entry2.getDisplayName());
+
+            if (sortCriteria == SortCriteria.COUNT)
+            {
+                return res;
+            }
+
+            return reverse == false ? res * -1 : res;
+        });
+
+        for (EntityMismatch mismatch : list)
+        {
+            this.listContents.add(new BlockMismatchEntry(mismatch));
         }
     }
 
