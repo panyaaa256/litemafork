@@ -38,6 +38,8 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
 
     private final SchematicPlacement placement;
     private final SchematicVerifier verifier;
+    /** Last progress value the status label was built for; -1 means "not built yet". */
+    private int lastShownUnseenChunks = -1;
 
     public GuiSchematicVerifier(SchematicPlacement placement)
     {
@@ -54,6 +56,33 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             WidgetSchematicVerificationResult.setMaxNameLengths(verifier.getMismatchOverviewCombined(), verifier.getEntityMismatchOverview());
             verifierLast = verifier;
         }
+    }
+
+    /**
+     * Keeps the "Unseen Chunks" status line live during a server side verification.
+     * <p>
+     * The label is built in initGui(), so on its own it would freeze at whatever the
+     * numbers were when the GUI opened. A server run reports its progress about once a
+     * second, and that progress is the only feedback there is while it works - the result
+     * list stays empty until the run finishes - so the line is worth re-building. Doing it
+     * only when the number actually changes keeps this to roughly one rebuild per second,
+     * and while the run is in progress there are no result widgets to disturb.
+     */
+    @Override
+    public void drawContents(fi.dy.masa.malilib.render.GuiContext ctx, int mouseX, int mouseY, float partialTicks)
+    {
+        if (this.verifier.isServerMode() && this.verifier.isActive())
+        {
+            int unseen = this.verifier.getUnseenChunks();
+
+            if (unseen != this.lastShownUnseenChunks)
+            {
+                this.lastShownUnseenChunks = unseen;
+                this.initGui();
+            }
+        }
+
+        super.drawContents(ctx, mouseX, mouseY, partialTicks);
     }
 
     @Override
@@ -116,7 +145,11 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
 
         if (this.verifier.isActive())
         {
-            String str = StringUtils.translate("litematica.gui.label.schematic_verifier.status.verifying", this.verifier.getUnseenChunks(), this.verifier.getTotalChunks());
+            // A server run has no chunk counts until its first progress report arrives,
+            // and "0 / 0" would read as finished rather than as not started yet
+            String str = this.verifier.isServerMode() && this.verifier.getTotalChunks() == 0
+                       ? StringUtils.translate("litematica.gui.label.schematic_verifier.status.server_waiting")
+                       : StringUtils.translate("litematica.gui.label.schematic_verifier.status.verifying", this.verifier.getUnseenChunks(), this.verifier.getTotalChunks());
             this.addLabel(12, y, 100, 12, 0xFFF0F0F0, str);
         }
         else if (this.verifier.isFinished())
