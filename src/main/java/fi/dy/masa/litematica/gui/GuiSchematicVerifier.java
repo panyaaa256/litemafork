@@ -3,6 +3,7 @@ package fi.dy.masa.litematica.gui;
 import javax.annotation.Nullable;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
+import fi.dy.masa.litematica.data.EntitiesDataStorage;
 import fi.dy.masa.litematica.gui.GuiMainMenu.ButtonListenerChangeMenu;
 import fi.dy.masa.litematica.gui.GuiSchematicVerifier.BlockMismatchEntry;
 import fi.dy.masa.litematica.gui.widgets.WidgetListSchematicVerificationResults;
@@ -79,6 +80,12 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
         ButtonGeneric button;
 
         x += this.createButton(x, y, -1, ButtonListener.Type.START) + 4;
+
+        if (EntitiesDataStorage.getInstance().hasServuxFeature("verify"))
+        {
+            x += this.createButton(x, y, -1, ButtonListener.Type.START_SERVER) + 4;
+        }
+
         x += this.createButton(x, y, -1, ButtonListener.Type.STOP) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.RESET_VERIFIER) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_LIST_TYPE) + 4;
@@ -94,6 +101,11 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING_ENTITIES) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_CORRECT) + 4;
+
+        if (this.verifier.getWrongNbtCount() > 0)
+        {
+            x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_WRONG_NBT) + 4;
+        }
 
         if (Configs.Generic.ENABLE_DIFFERENT_BLOCKS.getBooleanValue())
         {
@@ -201,6 +213,16 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
                     label = StringUtils.translate("litematica.gui.button.schematic_verifier.start");
                     enabled = this.verifier.isActive() == false;
                 }
+                break;
+
+            case SET_RESULT_MODE_WRONG_NBT:
+                label = MismatchType.WRONG_NBT.getDisplayname();
+                enabled = resultMode != MismatchType.WRONG_NBT;
+                break;
+
+            case START_SERVER:
+                label = StringUtils.translate("litematica.gui.button.schematic_verifier.start_server");
+                enabled = this.verifier.isActive() == false;
                 break;
 
             case STOP:
@@ -505,6 +527,28 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
                     verifierLast = null; // force re-calculating the column lengths
                     break;
 
+                case SET_RESULT_MODE_WRONG_NBT:
+                    this.parent.setResultMode(MismatchType.WRONG_NBT);
+                    break;
+
+                case START_SERVER:
+                {
+                    WorldSchematic serverWorld = SchematicWorldHandler.getSchematicWorld();
+
+                    if (serverWorld != null)
+                    {
+                        this.parent.verifier.startServerVerification(this.parent.mc.level, serverWorld,
+                                                                     this.parent.placement, this.parent);
+                    }
+                    else
+                    {
+                        this.parent.addMessage(MessageType.ERROR, "litematica.error.generic.schematic_world_not_loaded");
+                    }
+
+                    verifierLast = null; // force re-calculating the column lengths
+                    break;
+                }
+
                 case STOP:
                     this.parent.verifier.stopVerification();
                     break;
@@ -553,7 +597,9 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             SET_RESULT_MODE_MISSING,
             SET_RESULT_MODE_MISSING_ENTITIES,
             SET_RESULT_MODE_CORRECT,
+            SET_RESULT_MODE_WRONG_NBT,
             START,
+            START_SERVER,
             STOP,
             RESET_VERIFIER,
             SET_LIST_TYPE,

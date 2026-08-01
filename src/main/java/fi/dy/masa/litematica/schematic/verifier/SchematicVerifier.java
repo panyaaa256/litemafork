@@ -13,8 +13,8 @@ import org.apache.commons.lang3.tuple.Pair;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -26,6 +26,7 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.phys.AABB;
@@ -36,6 +37,8 @@ import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.interfaces.ICompletionListener;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
+import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.position.Direction;
 import fi.dy.masa.malilib.util.position.IntBoundingBox;
 import fi.dy.masa.malilib.util.position.LayerRange;
 import fi.dy.masa.litematica.config.Configs;
@@ -60,6 +63,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> extraBlocksPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> wrongBlocksPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> wrongStatesPositions = ArrayListMultimap.create();
+    /** Server-only: right block, wrong container contents. Never produced locally. */
+    private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> wrongNbtPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> diffBlocksPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<EntityType<?>, MissingEntityEntry> missingEntitiesPositions = ArrayListMultimap.create();
     private final Object2ObjectOpenHashMap<EntityType<?>, ItemStack> entityMismatchStacks = new Object2ObjectOpenHashMap<>();
@@ -72,6 +77,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final Object2ObjectOpenHashMap<BlockPos, BlockMismatch> blockMismatches = new Object2ObjectOpenHashMap<>();
     private final HashSet<Pair<BlockState, BlockState>> ignoredMismatches = new HashSet<>();
     private final List<BlockPos> missingBlocksPositionsClosest = new ArrayList<>();
+    private final List<BlockPos> wrongNbtPositionsClosest = new ArrayList<>();
     private final List<BlockPos> extraBlocksPositionsClosest = new ArrayList<>();
     private final List<BlockPos> mismatchedBlocksPositionsClosest = new ArrayList<>();
     private final List<BlockPos> mismatchedStatesPositionsClosest = new ArrayList<>();
@@ -97,6 +103,17 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private int correctStatesCount;
     private IgnoreBlockRegistry ignoreBlockRegistry;
     private VerifierListRegistry verifierListRegistry;
+
+    /**
+     * Server mode: the verification runs on the server, which is not limited by our render
+     * distance, and the results arrive over the network instead of being computed here.
+     * The chunk counters are mirrored from the server's progress reports so that the GUI's
+     * status line keeps its usual meaning.
+     */
+    private boolean serverMode;
+    private int serverChunksDone;
+    private int serverChunksTotal;
+    private int serverUnreadableChunks;
 
     public SchematicVerifier()
     {
@@ -195,12 +212,26 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     public int getTotalChunks()
     {
-        return this.totalRequiredChunks;
+        return this.serverMode ? this.serverChunksTotal : this.totalRequiredChunks;
     }
 
     public int getUnseenChunks()
     {
+        // In server mode nothing is waiting on our render distance; what is left over is
+        // whatever the server could not read (unloaded or never generated).
+        if (this.serverMode)
+        {
+            return this.finished ? this.serverUnreadableChunks
+                                 : Math.max(0, this.serverChunksTotal - this.serverChunksDone);
+        }
+
         return this.requiredChunks.size();
+    }
+
+    /** True when this verification is being performed by the server rather than locally. */
+    public boolean isServerMode()
+    {
+        return this.serverMode;
     }
 
     /** The chunks that have not been seen loaded and verified yet. Do not modify. */
@@ -232,6 +263,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public int getMismatchedBlocks()
     {
         return this.wrongBlocksPositions.size();
+    }
+
+    public int getWrongNbtCount()
+    {
+        return this.wrongNbtPositions.size();
     }
 
     public int getMismatchedStates()
@@ -439,6 +475,185 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.updateRequiredChunksStringList();
     }
 
+    /**
+     * Starts a verification on the server instead of locally.
+     * <p>
+     * The local chunk walking task is deliberately never scheduled: the whole point is that
+     * the server can see the entire placement. The verifier's own lifecycle flags are still
+     * maintained exactly as in local mode, because the GUI's status line and the task
+     * manager read them.
+     */
+    public void startServerVerification(ClientLevel worldClient, WorldSchematic worldSchematic,
+            SchematicPlacement schematicPlacement, ICompletionListener completionListener)
+    {
+        this.reset();
+
+        this.worldClient = worldClient;
+        this.worldSchematic = worldSchematic;
+        this.schematicPlacement = schematicPlacement;
+        this.ignoreBlockRegistry = new IgnoreBlockRegistry();
+        this.verifierListRegistry = new VerifierListRegistry();
+
+        this.setCompletionListener(completionListener);
+
+        this.serverMode = true;
+        this.verificationStarted = true;
+        this.verificationActive = true;
+
+        if (ServerVerifySession.getInstance().start(this, schematicPlacement) == false)
+        {
+            this.serverMode = false;
+            this.verificationStarted = false;
+            this.verificationActive = false;
+            return;
+        }
+
+        InfoHud.getInstance().addInfoHudRenderer(this, true);
+        ACTIVE_VERIFIERS.add(this);
+    }
+
+    /** Progress report from the server while it is still walking chunks. */
+    public void onServerProgress(int chunksDone, int chunksTotal, int mismatches)
+    {
+        this.serverChunksDone = chunksDone;
+        this.serverChunksTotal = chunksTotal;
+    }
+
+    /**
+     * Feeds one expected/found pair from the server through the same display filters the
+     * local verifier applies, so a server result and a local result of the same placement
+     * present identically.
+     * <p>
+     * The server deliberately does not apply any of these: ignored pairs, the fluid and
+     * ignore-block options and the different-blocks grouping are all client side settings,
+     * and the block grouping in particular lives in malilib, which the server does not have.
+     */
+    public void addServerMismatch(String category, BlockState stateSchematic, BlockState stateClient, long[] positions)
+    {
+        MismatchType type = serverCategoryToMismatchType(category);
+
+        if (type == null || positions.length == 0)
+        {
+            return;
+        }
+
+        // Excluded by the verifier black-/whitelist: drop it entirely, as locally
+        if (this.verifierListRegistry.isPositionIgnored(stateSchematic, stateClient) ||
+            this.verifierListRegistry.shouldTreatAsCorrect(stateSchematic, stateClient))
+        {
+            return;
+        }
+
+        MUTABLE_PAIR.setLeft(stateSchematic);
+        MUTABLE_PAIR.setRight(stateClient);
+
+        if (this.ignoredMismatches.contains(MUTABLE_PAIR))
+        {
+            return;
+        }
+
+        if (type == MismatchType.EXTRA &&
+            ((Configs.Visuals.IGNORE_EXISTING_FLUIDS.getBooleanValue() && stateClient.liquid()) ||
+             this.ignoreBlockRegistry.hasBlock(stateClient.getBlock())))
+        {
+            return;
+        }
+
+        // The server reports raw WRONG_BLOCK/WRONG_STATE; re-deriving DIFF_BLOCK needs
+        // malilib's block grouping, which only exists on this side
+        if (Configs.Generic.ENABLE_DIFFERENT_BLOCKS.getBooleanValue() &&
+            (type == MismatchType.WRONG_BLOCK || type == MismatchType.WRONG_STATE) &&
+            stateSchematic.getBlock() != stateClient.getBlock() &&
+            fi.dy.masa.malilib.util.game.BlockUtils.isInSameGroup(stateSchematic, stateClient))
+        {
+            type = fi.dy.masa.malilib.util.game.BlockUtils.matchPropertiesOnly(stateSchematic, stateClient)
+                 ? MismatchType.DIFF_BLOCK : MismatchType.WRONG_STATE;
+        }
+
+        ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> map = this.getMapForMismatchType(type);
+
+        if (map == null)
+        {
+            return;
+        }
+
+        Pair<BlockState, BlockState> pair = Pair.of(stateSchematic, stateClient);
+
+        for (long packed : positions)
+        {
+            BlockPos pos = BlockPos.of(packed);
+
+            map.put(pair, pos);
+            this.blockMismatches.put(pos, new BlockMismatch(type, stateSchematic, stateClient, 1));
+        }
+
+        // Only needs doing once per state; the lookup is cached by state, not by position.
+        // Skipping it leaves the result list rows unnamed, because the sorter keys on the
+        // item's hover name.
+        BlockPos representative = BlockPos.of(positions[0]);
+        ItemUtils.setItemForBlock(this.worldClient, representative, stateClient);
+        ItemUtils.setItemForBlock(this.worldSchematic, representative, stateSchematic);
+    }
+
+    /**
+     * Maps the server's category name onto our enum.
+     * <p>
+     * The server sends names rather than ordinals on purpose: this fork inserted
+     * {@link MismatchType#MISSING_ENTITY} part way through the enum, which shifts every
+     * later ordinal, so any numbering agreement would have silently mis-labelled results.
+     */
+    @Nullable
+    private static MismatchType serverCategoryToMismatchType(String category)
+    {
+        return switch (category)
+        {
+            case "missing" -> MismatchType.MISSING;
+            case "extra" -> MismatchType.EXTRA;
+            case "wrong_block" -> MismatchType.WRONG_BLOCK;
+            case "wrong_state" -> MismatchType.WRONG_STATE;
+            case "wrong_nbt" -> MismatchType.WRONG_NBT;
+            default -> null;
+        };
+    }
+
+    /** The server has sent its final batch; fill in the totals and wrap up. */
+    public void onServerFinished(CompoundTag totals)
+    {
+        this.schematicBlocks = totals.getIntOr("SchematicBlocks", 0);
+        this.clientBlocks = totals.getIntOr("WorldBlocks", 0);
+        this.correctStatesCount = totals.getIntOr("CorrectStatesCount", 0);
+        this.serverChunksTotal = totals.getIntOr("TotalChunks", this.serverChunksTotal);
+        this.serverChunksDone = totals.getIntOr("ProcessedChunks", this.serverChunksDone);
+        this.serverUnreadableChunks = totals.getIntOr("UnloadedChunks", 0) + totals.getIntOr("UngeneratedChunks", 0);
+
+        int[] states = totals.getIntArray("CorrectStates").orElse(new int[0]);
+        int[] counts = totals.getIntArray("CorrectStateCounts").orElse(new int[0]);
+
+        for (int i = 0; i < Math.min(states.length, counts.length); i++)
+        {
+            this.correctStateCounts.addTo(Block.stateById(states[i]), counts[i]);
+        }
+
+        if (totals.getBooleanOr("Truncated", false))
+        {
+            InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.verifier.server_result_truncated");
+        }
+
+        this.verificationActive = false;
+        this.finished = true;
+
+        this.updateMismatchOverlays();
+        this.notifyListener();
+    }
+
+    /** The server could not run the verification; drop back out of server mode. */
+    public void onServerFailed()
+    {
+        this.verificationActive = false;
+        this.finished = true;
+        this.notifyListener();
+    }
+
     public void resume()
     {
         if (this.verificationStarted)
@@ -450,6 +665,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     public void stopVerification()
     {
+        if (this.serverMode && this.finished == false)
+        {
+            // Otherwise the server keeps walking chunks for a result nobody wants
+            ServerVerifySession.getInstance().cancel();
+            this.serverMode = false;
+        }
+
         this.verificationActive = false;
     }
 
@@ -477,6 +699,10 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         this.verificationActive = false;
         this.verificationStarted = false;
+        this.serverMode = false;
+        this.serverChunksDone = 0;
+        this.serverChunksTotal = 0;
+        this.serverUnreadableChunks = 0;
         this.finished = false;
         this.totalRequiredChunks = 0;
         this.correctStatesCount = 0;
@@ -489,6 +715,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.diffBlocksPositions.clear();
         this.extraBlocksPositions.clear();
         this.wrongBlocksPositions.clear();
+        this.wrongNbtPositions.clear();
         this.wrongStatesPositions.clear();
         this.blockMismatches.clear();
         this.correctStateCounts.clear();
@@ -587,6 +814,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             case WRONG_BLOCK -> this.wrongBlocksPositions;
             case WRONG_STATE -> this.wrongStatesPositions;
             case DIFF_BLOCK -> this.diffBlocksPositions;
+            case WRONG_NBT -> this.wrongNbtPositions;
             default -> null;
         };
     }
@@ -734,6 +962,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.addCountFor(MismatchType.WRONG_BLOCK, this.wrongBlocksPositions, list);
         this.addCountFor(MismatchType.WRONG_STATE, this.wrongStatesPositions, list);
         this.addCountFor(MismatchType.DIFF_BLOCK, this.diffBlocksPositions, list);
+        this.addCountFor(MismatchType.WRONG_NBT, this.wrongNbtPositions, list);
 
         Collections.sort(list);
 
@@ -1168,6 +1397,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.addAndSortPositions(MismatchType.WRONG_STATE,  this.wrongStatesPositions, this.mismatchedStatesPositionsClosest, maxEntries);
         this.addAndSortPositions(MismatchType.EXTRA,        this.extraBlocksPositions, this.extraBlocksPositionsClosest, maxEntries);
         this.addAndSortPositions(MismatchType.MISSING,      this.missingBlocksPositions, this.missingBlocksPositionsClosest, maxEntries);
+        this.addAndSortPositions(MismatchType.WRONG_NBT,    this.wrongNbtPositions, this.wrongNbtPositionsClosest, maxEntries);
     }
 
     private void addAndSortPositions(MismatchType type,
@@ -1250,6 +1480,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             case WRONG_BLOCK -> this.mismatchedBlocksPositionsClosest;
             case WRONG_STATE -> this.mismatchedStatesPositionsClosest;
             case DIFF_BLOCK -> this.diffBlocksPositionsClosest;
+            case WRONG_NBT -> this.wrongNbtPositionsClosest;
             default -> Collections.emptyList();
         };
     }
@@ -1444,7 +1675,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         WRONG_BLOCK     (0xFF0000, "litematica.gui.label.schematic_verifier_display_type.wrong_blocks", GuiBase.TXT_RED),
         WRONG_STATE     (0xFFAF00, "litematica.gui.label.schematic_verifier_display_type.wrong_state", GuiBase.TXT_GOLD),
         CORRECT_STATE   (0x11FF11, "litematica.gui.label.schematic_verifier_display_type.correct_state", GuiBase.TXT_GREEN),
-        DIFF_BLOCK      (0xFAF000, "litematica.gui.label.schematic_verifier_display_type.diff_blocks", GuiBase.TXT_YELLOW);
+        DIFF_BLOCK      (0xFAF000, "litematica.gui.label.schematic_verifier_display_type.diff_blocks", GuiBase.TXT_YELLOW),
+        WRONG_NBT       (0x00CFCF, "litematica.gui.label.schematic_verifier_display_type.wrong_nbt", GuiBase.TXT_DARK_AQUA);
 
         private final String unlocName;
         private final String colorCode;

@@ -50,6 +50,7 @@ import fi.dy.masa.malilib.util.data.Constants;
 import fi.dy.masa.malilib.util.data.DataEntityUtils;
 import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
+import fi.dy.masa.malilib.util.data.tag.StringData;
 import fi.dy.masa.malilib.util.data.tag.converter.DataConverterNbt;
 import fi.dy.masa.malilib.util.data.tag.util.DataTypeUtils;
 import fi.dy.masa.malilib.util.data_syncer.EntityDataCache;
@@ -81,6 +82,7 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
     private final Minecraft mc;
     private ClientLevel clientWorld;
     private boolean servuxServer = false;
+    private final Set<String> servuxFeatures = new HashSet<>();
     private boolean hasInValidServux = false;
     private String servuxVersion;
     // Wait 5 seconds for loaded Client Chunks to receive Entity Data
@@ -558,6 +560,7 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
                 Litematica.debugLog("LitematicDataChannel: Connected to: {}", servux);
                 this.setServuxVersion(servux);
                 this.setIsServuxServer();
+                this.readServuxFeatures(data);
 
                 return true;
             }
@@ -566,8 +569,42 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
         return false;
     }
 
+    /**
+     * Records the server's capability list.
+     * <p>
+     * Servux advertises optional features here rather than by bumping the protocol
+     * version, because a version bump would lock out every client that does not know about
+     * the new feature. Clients branch on the capability instead.
+     */
+    private void readServuxFeatures(CompoundData data)
+    {
+        this.servuxFeatures.clear();
+
+        ListData list = data.getList("Features");
+
+        if (list == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < list.size(); i++)
+        {
+            if (list.get(i) instanceof StringData str)
+            {
+                this.servuxFeatures.add(str.getString());
+            }
+        }
+    }
+
+    /** True when the connected Servux server advertised the given capability. */
+    public boolean hasServuxFeature(String feature)
+    {
+        return this.hasServuxServer() && this.servuxFeatures.contains(feature);
+    }
+
     public void onPacketFailure()
     {
+        this.servuxFeatures.clear();
         this.servuxServer = false;
         this.hasInValidServux = true;
     }

@@ -26,6 +26,7 @@ import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.util.DataByteBufUtils;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.data.EntityDataManager;
+import fi.dy.masa.litematica.schematic.verifier.ServerVerifySession;
 
 @Environment(EnvType.CLIENT)
 public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> implements IPluginClientPlayHandler<T>
@@ -93,19 +94,23 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
                         this.servuxRegistered = true;
                     }
                 }
-                // TODO
-//                case PACKET_S2C_TASK_RESPONSE ->
-//                {
-//                    if (this.servuxRegistered)
-//                    {
-//                        EntityDataManager.getInstance().receiveServuxTaskResponse(packet.getCompound());
-//                    }
-//                }
+                case PACKET_S2C_TASK_RESPONSE ->
+                {
+                    if (this.servuxRegistered)
+                    {
+                        ServerVerifySession.getInstance().handleError(packet.getCompound());
+                    }
+                }
                 case PACKET_S2C_TASK_STATUS_SYNC ->
                 {
                     if (this.servuxRegistered)
                     {
-                        EntityDataManager.getInstance().receiveServuxTaskStatusSync(packet.getCompound());
+                        // The verifier only claims the pings from its own session; everything
+                        // else belongs to the shared info HUD sync (fill, delete and friends)
+                        if (ServerVerifySession.getInstance().handleStatus(packet.getCompound()) == false)
+                        {
+                            EntityDataManager.getInstance().receiveServuxTaskStatusSync(packet.getCompound());
+                        }
                     }
                 }
                 case PACKET_S2C_BLOCK_NBT_RESPONSE_SIMPLE ->
@@ -190,6 +195,12 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
 //            }
 //            default -> EntityDataManager.getInstance().handleBulkEntityData(-1, data);
 //        }
+
+        if (task.equals("LitematicaVerifyResult"))
+        {
+            ServerVerifySession.getInstance().handleResult(data);
+            return;
+        }
 
         EntityDataManager.getInstance().handleBulkEntityData(-1, data);
     }
