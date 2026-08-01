@@ -439,9 +439,24 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
             Block block = state.getBlock();
             String key = block.getDescriptionId() + ".name";
             String name = StringUtils.translate(key);
-            name = key.equals(name) == false ? name : stack.getHoverName().getString();
 
-            return name;
+            if (key.equals(name) == false)
+            {
+                return name;
+            }
+
+            // Falling through to the item's name means a block with no resolvable item
+            // renders as "Air", because that is what an empty stack is called. That also
+            // sizes the column from the wrong string, so the real name then overlaps the
+            // next column. Blocks verified by the server are the common case here: their
+            // positions are outside the render distance, so the pick-stack lookup that
+            // fills the item cache has no loaded block to work from.
+            if (stack.isEmpty() && state.isAir() == false)
+            {
+                return StringUtils.translate(block.getDescriptionId());
+            }
+
+            return stack.getHoverName().getString();
         }
 
         public int getTotalWidth()
