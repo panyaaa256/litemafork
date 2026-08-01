@@ -134,6 +134,36 @@ public class ServuxLitematicaPacket implements IClientPayloadData
         return packet;
     }
 
+    // Granular task management: small NBT control messages that accompany the
+    // bulk result stream sent through the Packet Splitter.
+    public static ServuxLitematicaPacket TaskRequest(@Nonnull CompoundTag nbt)
+    {
+        var packet = new ServuxLitematicaPacket(Type.PACKET_C2S_TASK_REQUEST);
+        packet.nbt.merge(nbt);
+        return packet;
+    }
+
+    public static ServuxLitematicaPacket TaskResponse(@Nonnull CompoundTag nbt)
+    {
+        var packet = new ServuxLitematicaPacket(Type.PACKET_S2C_TASK_RESPONSE);
+        packet.nbt.merge(nbt);
+        return packet;
+    }
+
+    public static ServuxLitematicaPacket TaskStatusSync(@Nonnull CompoundTag nbt)
+    {
+        var packet = new ServuxLitematicaPacket(Type.PACKET_S2C_TASK_STATUS_SYNC);
+        packet.nbt.merge(nbt);
+        return packet;
+    }
+
+    public static ServuxLitematicaPacket TaskCancel(@Nonnull CompoundTag nbt)
+    {
+        var packet = new ServuxLitematicaPacket(Type.PACKET_C2S_TASK_CANCEL);
+        packet.nbt.merge(nbt);
+        return packet;
+    }
+
     private void clearPacket()
     {
         if (this.buffer != null)
@@ -291,7 +321,9 @@ public class ServuxLitematicaPacket implements IClientPayloadData
                     Litematica.LOGGER.error("ServuxEntitiesPacket#toPacket: error writing buffer data to packet: [{}]", e.getLocalizedMessage());
                 }
             }
-            case PACKET_C2S_METADATA_REQUEST, PACKET_S2C_METADATA ->
+            case PACKET_C2S_METADATA_REQUEST, PACKET_S2C_METADATA,
+                 PACKET_C2S_TASK_REQUEST, PACKET_S2C_TASK_RESPONSE,
+                 PACKET_S2C_TASK_STATUS_SYNC, PACKET_C2S_TASK_CANCEL ->
             {
                 // Write NBT
                 try
@@ -428,6 +460,50 @@ public class ServuxLitematicaPacket implements IClientPayloadData
                     Litematica.LOGGER.error("ServuxEntitiesPacket#fromPacket: error reading Metadata Response from packet: [{}]", e.getLocalizedMessage());
                 }
             }
+            case PACKET_C2S_TASK_REQUEST ->
+            {
+                try
+                {
+                    return ServuxLitematicaPacket.TaskRequest(input.readNbt());
+                }
+                catch (Exception e)
+                {
+                    Litematica.LOGGER.error("ServuxLitematicaPacket#fromPacket: error reading Task Request from packet: [{}]", e.getLocalizedMessage());
+                }
+            }
+            case PACKET_S2C_TASK_RESPONSE ->
+            {
+                try
+                {
+                    return ServuxLitematicaPacket.TaskResponse(input.readNbt());
+                }
+                catch (Exception e)
+                {
+                    Litematica.LOGGER.error("ServuxLitematicaPacket#fromPacket: error reading Task Response from packet: [{}]", e.getLocalizedMessage());
+                }
+            }
+            case PACKET_S2C_TASK_STATUS_SYNC ->
+            {
+                try
+                {
+                    return ServuxLitematicaPacket.TaskStatusSync(input.readNbt());
+                }
+                catch (Exception e)
+                {
+                    Litematica.LOGGER.error("ServuxLitematicaPacket#fromPacket: error reading Task Status Sync from packet: [{}]", e.getLocalizedMessage());
+                }
+            }
+            case PACKET_C2S_TASK_CANCEL ->
+            {
+                try
+                {
+                    return ServuxLitematicaPacket.TaskCancel(input.readNbt());
+                }
+                catch (Exception e)
+                {
+                    Litematica.LOGGER.error("ServuxLitematicaPacket#fromPacket: error reading Task Cancel from packet: [{}]", e.getLocalizedMessage());
+                }
+            }
             default -> Litematica.LOGGER.error("ServuxEntitiesPacket#fromPacket: Unknown packet type!");
         }
 
@@ -476,7 +552,12 @@ public class ServuxLitematicaPacket implements IClientPayloadData
         PACKET_S2C_NBT_RESPONSE_DATA(11),
         // For Packet Splitter (Oversize Packets, C2S)
         PACKET_C2S_NBT_RESPONSE_START(12),
-        PACKET_C2S_NBT_RESPONSE_DATA(13);
+        PACKET_C2S_NBT_RESPONSE_DATA(13),
+        // Granular task management (Schematic Verification)
+        PACKET_C2S_TASK_REQUEST(14),
+        PACKET_S2C_TASK_RESPONSE(15),
+        PACKET_S2C_TASK_STATUS_SYNC(16),
+        PACKET_C2S_TASK_CANCEL(17);
 
         private final int type;
 

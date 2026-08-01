@@ -24,6 +24,7 @@ import fi.dy.masa.malilib.util.data.tag.converter.DataConverterNbt;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.data.EntityDataManager;
+import fi.dy.masa.litematica.schematic.verifier.ServerVerifySession;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 
@@ -91,6 +92,8 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
             }
             case PACKET_S2C_BLOCK_NBT_RESPONSE_SIMPLE -> EntityDataManager.getInstance().handleBlockEntityData(packet.getPos(), packet.getCompound());
             case PACKET_S2C_ENTITY_NBT_RESPONSE_SIMPLE -> EntityDataManager.getInstance().handleEntityData(packet.getEntityId(), packet.getCompound());
+            case PACKET_S2C_TASK_STATUS_SYNC -> ServerVerifySession.getInstance().handleStatus(packet.getCompound());
+            case PACKET_S2C_TASK_RESPONSE -> ServerVerifySession.getInstance().handleError(packet.getCompound());
             case PACKET_S2C_NBT_RESPONSE_DATA ->
             {
                 if (this.readingSessionKey == -1)
@@ -149,6 +152,7 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
                     }
                 }
             }
+            case "LitematicaVerifyResult" -> ServerVerifySession.getInstance().handleResult(nbt);
             default -> EntityDataManager.getInstance().handleBulkEntityData(type, DataConverterNbt.fromVanillaCompound(nbt));
         }
     }

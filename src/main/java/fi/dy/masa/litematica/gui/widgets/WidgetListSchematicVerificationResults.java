@@ -99,6 +99,7 @@ public class WidgetListSchematicVerificationResults extends WidgetListBase<Block
             this.addEntriesForType(MismatchType.WRONG_STATE);
             this.addEntriesForType(MismatchType.EXTRA);
             this.addEntriesForType(MismatchType.MISSING);
+            this.addEntriesForType(MismatchType.WRONG_NBT);
             this.addMissingEntityEntries();
         }
         else if (type == MismatchType.MISSING_ENTITY)

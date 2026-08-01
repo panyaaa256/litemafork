@@ -12,6 +12,7 @@ import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
@@ -77,6 +78,7 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
     private final Minecraft mc;
     private ClientLevel clientWorld;
     private boolean servuxServer = false;
+    private final java.util.Set<String> servuxFeatures = new java.util.HashSet<>();
     private boolean hasInValidServux = false;
     private String servuxVersion;
     // Wait 5 seconds for loaded Client Chunks to receive Entity Data
@@ -497,6 +499,7 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
 
                 this.setServuxVersion(data.getStringOr("servux", "?"));
                 this.setIsServuxServer();
+                this.readServuxFeatures(data);
 
                 return true;
             }
@@ -505,8 +508,34 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
         return false;
     }
 
+    /**
+     * Records the server's capability list.
+     * <p>
+     * Servux advertises optional features here rather than by bumping the protocol
+     * version, because a version bump would lock out every client that does not know about
+     * the new feature. Clients branch on the capability instead.
+     */
+    private void readServuxFeatures(CompoundTag data)
+    {
+        this.servuxFeatures.clear();
+
+        ListTag list = data.getListOrEmpty("Features");
+
+        for (int i = 0; i < list.size(); i++)
+        {
+            this.servuxFeatures.add(list.getStringOr(i, ""));
+        }
+    }
+
+    /** True when the connected Servux server advertised the given capability. */
+    public boolean hasServuxFeature(String feature)
+    {
+        return this.hasServuxServer() && this.servuxFeatures.contains(feature);
+    }
+
     public void onPacketFailure()
     {
+        this.servuxFeatures.clear();
         this.servuxServer = false;
         this.hasInValidServux = true;
     }
