@@ -2,8 +2,10 @@ package fi.dy.masa.litematica.render;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nullable;
 import com.google.common.collect.ImmutableMap;
 
@@ -14,11 +16,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import fi.dy.masa.malilib.config.HudAlignment;
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -36,6 +40,11 @@ import fi.dy.masa.litematica.config.Hotkeys;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.data.EntityDataManager;
 import fi.dy.masa.litematica.gui.widgets.WidgetSchematicVerificationResult.BlockMismatchInfo;
+import fi.dy.masa.litematica.scheduler.ITask;
+import fi.dy.masa.litematica.scheduler.TaskScheduler;
+import fi.dy.masa.litematica.scheduler.tasks.TaskCountBlocksBase;
+import fi.dy.masa.litematica.scheduler.tasks.TaskProcessChunkBase;
+import fi.dy.masa.litematica.scheduler.tasks.TaskSaveSchematic;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacementManager;
 import fi.dy.masa.litematica.schematic.placement.SubRegionPlacement.RequiredEnabled;
@@ -82,6 +91,9 @@ public class OverlayRenderer
             0xF13A13,    // Vivid Reddish Orange
             0x232C16     // Dark Olive Green
         };
+
+    // Unloaded chunk highlight boxes are only drawn within this horizontal distance of the camera.
+    private static final double UNLOADED_CHUNK_RENDER_DISTANCE = 2048.0;
 
     private final Minecraft mc;
     private final Map<SchematicPlacement, ImmutableMap<String, Box>> placements = new HashMap<>();
@@ -347,6 +359,131 @@ public class OverlayRenderer
                 fi.dy.masa.malilib.render.RenderUtils.renderBlockOutline(pos2, expand, lineWidthBlockBox, color2, false);
             }
         }
+    }
+
+    public void renderUnloadedChunkHighlights(ProfilerFiller profiler)
+    {
+        profiler.push("unloaded_chunks");
+
+        Level level = this.mc.level;
+
+        if (level != null)
+        {
+            int minY = level.getMinY();
+            int maxY = Math.min(level.getMaxY(), Configs.Visuals.UNLOADED_CHUNKS_MAX_Y.getIntegerValue());
+
+            if (maxY >= minY)
+            {
+                Vec3 cameraPos = fi.dy.masa.malilib.render.RenderUtils.camPos();
+                Set<ChunkPos> pendingChunks = new HashSet<>();
+
+                collectPendingChunks(TaskScheduler.getInstanceClient(), pendingChunks);
+                collectPendingChunks(TaskScheduler.getInstanceServer(), pendingChunks);
+
+                List<ChunkPos> unloadedChunks = new ArrayList<>();
+
+                for (ChunkPos pos : pendingChunks)
+                {
+                    double dx = pos.getMinBlockX() + 8 - cameraPos.x;
+                    double dz = pos.getMinBlockZ() + 8 - cameraPos.z;
+
+                    if (dx * dx + dz * dz <= UNLOADED_CHUNK_RENDER_DISTANCE * UNLOADED_CHUNK_RENDER_DISTANCE &&
+                        level.getChunkSource().hasChunk(pos.x(), pos.z()) == false)
+                    {
+                        unloadedChunks.add(pos);
+                    }
+                }
+
+                if (unloadedChunks.isEmpty() == false)
+                {
+                    this.renderUnloadedChunkBoxes(unloadedChunks, cameraPos, minY, maxY, profiler);
+                }
+            }
+        }
+
+        profiler.pop();
+    }
+
+    /**
+     * Collects the chunks that the chunk-loading dependent tasks (Schematic Verifier,
+     * Area Analysis, Material List generation, Save Schematic) are still waiting on.
+     */
+    private static void collectPendingChunks(TaskScheduler scheduler, Set<ChunkPos> out)
+    {
+        for (ITask task : scheduler.getAllTasks())
+        {
+            if (task instanceof SchematicVerifier verifier)
+            {
+                if (verifier.isActive())
+                {
+                    out.addAll(verifier.getRequiredChunks());
+                }
+            }
+            else if (task instanceof TaskSaveSchematic || task instanceof TaskCountBlocksBase)
+            {
+                out.addAll(((TaskProcessChunkBase) task).getPendingChunksSnapshot());
+            }
+        }
+    }
+
+    private void renderUnloadedChunkBoxes(List<ChunkPos> chunks, Vec3 cameraPos, int minY, int maxY, ProfilerFiller profiler)
+    {
+        Color4f sideColor = Configs.Colors.UNLOADED_CHUNKS_HIGHLIGHT_COLOR.getColor();
+        Color4f lineColor = new Color4f(sideColor.r, sideColor.g, sideColor.b, 1f);
+        float y0 = (float) (minY - cameraPos.y);
+        float y1 = (float) (maxY + 1 - cameraPos.y);
+        float lineWidth = 1.5f;
+
+        profiler.push("side_quads");
+        RenderContext ctx = new RenderContext(() -> "litematica:unloaded_chunks/side_quads", MaLiLibPipelines.POSITION_COLOR_TRANSLUCENT_NO_DEPTH_NO_CULL);
+        BufferBuilder buffer = ctx.getBuilder();
+
+        for (ChunkPos pos : chunks)
+        {
+            float x0 = (float) (pos.getMinBlockX() - cameraPos.x);
+            float z0 = (float) (pos.getMinBlockZ() - cameraPos.z);
+            fi.dy.masa.malilib.render.RenderUtils.drawBoxAllSidesBatchedQuads(x0, y0, z0, x0 + 16, y1, z0 + 16, sideColor, buffer);
+        }
+
+        try
+        {
+            MeshData meshData = buffer.build();
+
+            if (meshData != null)
+            {
+                ctx.draw(meshData, false, false);
+                meshData.close();
+            }
+
+            ctx.reset();
+        }
+        catch (Exception ignored) { }
+
+        profiler.popPush("outlines");
+        buffer = ctx.start(() -> "litematica:unloaded_chunks/outlines", MaLiLibPipelines.DEBUG_LINES_MASA_SIMPLE_NO_DEPTH_NO_CULL);
+
+        for (ChunkPos pos : chunks)
+        {
+            float x0 = (float) (pos.getMinBlockX() - cameraPos.x);
+            float z0 = (float) (pos.getMinBlockZ() - cameraPos.z);
+            fi.dy.masa.malilib.render.RenderUtils.drawBoxAllEdgesBatchedLines(x0, y0, z0, x0 + 16, y1, z0 + 16, lineColor, lineWidth, buffer);
+        }
+
+        try
+        {
+            MeshData meshData = buffer.build();
+
+            if (meshData != null)
+            {
+                ctx.draw(meshData, false, true);
+                meshData.close();
+            }
+
+            ctx.close();
+        }
+        catch (Exception ignored) { }
+
+        profiler.pop();
     }
 
     public void renderSchematicVerifierMismatches(ProfilerFiller profiler)

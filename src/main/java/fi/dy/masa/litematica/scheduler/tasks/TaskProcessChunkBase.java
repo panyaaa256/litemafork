@@ -6,6 +6,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.function.BiConsumer;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
 
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.profiling.ProfilerFiller;
@@ -27,6 +28,8 @@ public abstract class TaskProcessChunkBase extends TaskBase
 {
     protected final ArrayListMultimap<ChunkPos, IntBoundingBox> boxesInChunks = ArrayListMultimap.create();
     protected final ArrayList<ChunkPos> pendingChunks = new ArrayList<>();
+    // The task may run on the integrated server thread, so the renderer reads this snapshot instead of pendingChunks
+    private volatile ImmutableList<ChunkPos> pendingChunksSnapshot = ImmutableList.of();
     protected final ClientLevel clientWorld;
     protected final WorldSchematic schematicWorld;
     protected final Level world;
@@ -101,6 +104,7 @@ public abstract class TaskProcessChunkBase extends TaskBase
         if (processed > 0)
         {
             this.updateInfoHudLinesPendingChunks(this.pendingChunks);
+            this.pendingChunksSnapshot = ImmutableList.copyOf(this.pendingChunks);
         }
 
         this.finished = this.pendingChunks.isEmpty();
@@ -129,6 +133,7 @@ public abstract class TaskProcessChunkBase extends TaskBase
         }
 
         this.pendingChunks.addAll(this.boxesInChunks.keySet());
+        this.pendingChunksSnapshot = ImmutableList.copyOf(this.pendingChunks);
 
         this.sortChunkList();
     }
@@ -163,6 +168,7 @@ public abstract class TaskProcessChunkBase extends TaskBase
         }
 
         this.pendingChunks.addAll(this.boxesInChunks.keySet());
+        this.pendingChunksSnapshot = ImmutableList.copyOf(this.pendingChunks);
 
         this.sortChunkList();
     }
@@ -218,6 +224,12 @@ public abstract class TaskProcessChunkBase extends TaskBase
 
             consumer.accept(new ChunkPos(boxMinX >> 4, boxMinZ >> 4), new IntBoundingBox(boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ));
         }
+    }
+
+    /** Snapshot of the chunks still waiting to be processed; safe to read from the render thread. */
+    public ImmutableList<ChunkPos> getPendingChunksSnapshot()
+    {
+        return this.pendingChunksSnapshot;
     }
 
     protected List<IntBoundingBox> getBoxesInChunk(ChunkPos pos)

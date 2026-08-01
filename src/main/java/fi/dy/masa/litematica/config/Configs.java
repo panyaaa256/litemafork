@@ -25,6 +25,7 @@ import fi.dy.masa.malilib.util.i18n.i18nConfig;
 import fi.dy.masa.malilib.util.i18n.i18nManager;
 import fi.dy.masa.malilib.util.i18n.i18nMode;
 import fi.dy.masa.malilib.util.i18n.i18nOption;
+import fi.dy.masa.malilib.util.restrictions.UsageRestriction;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.Reference;
 import fi.dy.masa.litematica.data.DataManager;
@@ -141,6 +142,9 @@ public class Configs implements IConfigHandler
         public static final ConfigOptionList    TRANSLATION_MODE            = new ConfigOptionList("translationMode",     i18nMode.FOLLOW_VANILLA).apply(GENERIC_KEY);
         public static final ConfigBoolean       UNHIDE_SCHEMATIC_PROJECTS   = new ConfigBoolean("unhideSchematicVCS", false).apply(GENERIC_KEY);
         public static final ConfigDouble        VERIFIER_ENTITY_TOLERANCE   = new ConfigDouble("verifierEntityPositionTolerance", 0.1, 0, 8).apply(GENERIC_KEY);
+        public static final ConfigStringList    VERIFIER_BLACKLIST          = new ConfigStringList("verifierBlacklist", ImmutableList.of()).apply(GENERIC_KEY);
+        public static final ConfigOptionList    VERIFIER_LIST_TYPE          = new ConfigOptionList("verifierListType", UsageRestriction.ListType.BLACKLIST).apply(GENERIC_KEY);
+        public static final ConfigStringList    VERIFIER_WHITELIST          = new ConfigStringList("verifierWhitelist", ImmutableList.of()).apply(GENERIC_KEY);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 PLACEMENT_MANAGER_THREAD_COUNT,
@@ -221,7 +225,10 @@ public class Configs implements IConfigHandler
                 SIGN_TEXT_PASTE,
                 TOOL_ITEM_ENABLED,
                 UNHIDE_SCHEMATIC_PROJECTS,
+                VERIFIER_BLACKLIST,
                 VERIFIER_ENTITY_TOLERANCE,
+                VERIFIER_LIST_TYPE,
+                VERIFIER_WHITELIST,
 
                 PASTE_REPLACE_BEHAVIOR,
                 PASTE_LAYER_BEHAVIOR,
@@ -262,6 +269,7 @@ public class Configs implements IConfigHandler
         public static final ConfigBooleanHotkeyed ENABLE_SCHEMATIC_RENDERING        = new ConfigBooleanHotkeyed("enableSchematicRendering", true, "").apply(VISUALS_KEY);
         public static final ConfigBooleanHotkeyed ENABLE_SCHEMATIC_ENTITY_HITBOXES  = new ConfigBooleanHotkeyed("enableSchematicEntityHitboxes", true, "").apply(VISUALS_KEY);
         public static final ConfigBooleanHotkeyed ENABLE_SCHEMATIC_FAKE_LIGHTING    = new ConfigBooleanHotkeyed("enableSchematicFakeLighting", true, "").apply(VISUALS_KEY);
+        public static final ConfigBooleanHotkeyed HIGHLIGHT_UNLOADED_CHUNKS         = new ConfigBooleanHotkeyed("highlightUnloadedChunks", false, "").apply(VISUALS_KEY);
         //public static final ConfigInteger       RENDER_SCHEMATIC_MAX_THREADS        = new ConfigInteger("renderSchematicMaxThreads", 4, 1, 16).apply(VISUALS_KEY);
         public static final ConfigDouble        GHOST_BLOCK_ALPHA                   = new ConfigDouble( "ghostBlockAlpha", 0.5, 0, 1).apply(VISUALS_KEY);
         public static final ConfigBoolean       IGNORE_EXISTING_FLUIDS              = new ConfigBoolean("ignoreExistingFluids", false).apply(VISUALS_KEY);
@@ -297,6 +305,7 @@ public class Configs implements IConfigHandler
         public static final ConfigBooleanHotkeyed SCHEMATIC_OVERLAY_TYPE_MISSING      = new ConfigBooleanHotkeyed("schematicOverlayTypeMissing",     true, "").apply(VISUALS_KEY);
         public static final ConfigBooleanHotkeyed SCHEMATIC_OVERLAY_TYPE_WRONG_BLOCK  = new ConfigBooleanHotkeyed("schematicOverlayTypeWrongBlock",  true, "").apply(VISUALS_KEY);
         public static final ConfigBooleanHotkeyed SCHEMATIC_OVERLAY_TYPE_WRONG_STATE  = new ConfigBooleanHotkeyed("schematicOverlayTypeWrongState",  true, "").apply(VISUALS_KEY);
+        public static final ConfigInteger       UNLOADED_CHUNKS_MAX_Y               = new ConfigInteger("unloadedChunksMaxY", 128, -2032, 2031).apply(VISUALS_KEY);
 //        public static final ConfigBoolean       SCHEMATIC_VERIFIER_BLOCK_MODELS     = new ConfigBoolean("schematicVerifierUseBlockModels", false).apply(VISUALS_KEY);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
@@ -310,6 +319,7 @@ public class Configs implements IConfigHandler
                 ENABLE_SCHEMATIC_FAKE_LIGHTING,
                 ENABLE_SCHEMATIC_OVERLAY,
                 ENABLE_SCHEMATIC_OVERLAY_CULLING,
+                HIGHLIGHT_UNLOADED_CHUNKS,
                 IGNORE_EXISTING_FLUIDS,
                 IGNORE_EXISTING_BLOCKS,
                 IGNORABLE_EXISTING_BLOCKS,
@@ -345,7 +355,8 @@ public class Configs implements IConfigHandler
                 GHOST_BLOCK_ALPHA,
                 PLACEMENT_BOX_SIDE_ALPHA,
                 SCHEMATIC_OVERLAY_OUTLINE_WIDTH,
-                SCHEMATIC_OVERLAY_OUTLINE_WIDTH_THROUGH
+                SCHEMATIC_OVERLAY_OUTLINE_WIDTH_THROUGH,
+                UNLOADED_CHUNKS_MAX_Y
         );
 
         public static final List<IHotkey> HOTKEY_LIST = ImmutableList.of(
@@ -359,6 +370,7 @@ public class Configs implements IConfigHandler
                 ENABLE_SCHEMATIC_FAKE_LIGHTING,
                 ENABLE_SCHEMATIC_OVERLAY,
                 ENABLE_SCHEMATIC_OVERLAY_CULLING,
+                HIGHLIGHT_UNLOADED_CHUNKS,
                 OVERLAY_REDUCED_INNER_SIDES,
                 RENDER_AO_MODERN_ENABLE,
                 RENDER_BLOCKS_AS_TRANSLUCENT,
@@ -459,6 +471,7 @@ public class Configs implements IConfigHandler
         public static final ConfigColor SCHEMATIC_OVERLAY_COLOR_MISSING     = new ConfigColor("schematicOverlayColorMissing",       "#2C33B3E6").apply(COLORS_KEY);
         public static final ConfigColor SCHEMATIC_OVERLAY_COLOR_WRONG_BLOCK = new ConfigColor("schematicOverlayColorWrongBlock",    "#4CFF3333").apply(COLORS_KEY);
         public static final ConfigColor SCHEMATIC_OVERLAY_COLOR_WRONG_STATE = new ConfigColor("schematicOverlayColorWrongState",    "#4CFF9010").apply(COLORS_KEY);
+        public static final ConfigColor UNLOADED_CHUNKS_HIGHLIGHT_COLOR     = new ConfigColor("unloadedChunksHighlightColor",       "#30FF8800").apply(COLORS_KEY);
         public static final ConfigColor VERIFIER_ENTITY_HIGHLIGHT_COLOR     = new ConfigColor("verifierEntityHighlightColor",       "#FFAA00AA").apply(COLORS_KEY);
 
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
@@ -473,6 +486,7 @@ public class Configs implements IConfigHandler
                 SCHEMATIC_OVERLAY_COLOR_MISSING,
                 SCHEMATIC_OVERLAY_COLOR_WRONG_BLOCK,
                 SCHEMATIC_OVERLAY_COLOR_WRONG_STATE,
+                UNLOADED_CHUNKS_HIGHLIGHT_COLOR,
                 VERIFIER_ENTITY_HIGHLIGHT_COLOR
         );
     }
