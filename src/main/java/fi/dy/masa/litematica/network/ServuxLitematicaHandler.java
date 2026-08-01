@@ -78,6 +78,8 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
         {
             return;
         }
+        // A null payload means fromPacket() did not recognise the type; it has already
+        // logged and drained, and the instanceof below simply declines it.
         if (!EntityDataManager.getInstance().isEnabled() || !this.checkFailures())
         {
             return;
