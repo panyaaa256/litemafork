@@ -329,6 +329,13 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
             WidgetSchematicVerificationResult.setMaxNameLengths(verifier.getMismatchOverviewCombined(), verifier.getEntityMismatchOverview());
             this.initGui();
         }
+        else
+        {
+            // Not on screen, so the column widths cannot be recalculated now. Drop the
+            // cached verifier so that reopening the GUI measures the finished results
+            // instead of reusing widths from when there were none.
+            verifierLast = null;
+        }
     }
 
     @Override
