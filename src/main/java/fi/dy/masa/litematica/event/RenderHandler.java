@@ -49,6 +49,12 @@ public class RenderHandler implements IRenderer
                 OverlayRenderer.getInstance().renderSchematicVerifierMismatches(posMatrix, projMatrix, profiler);
             }
 
+            if (Configs.Visuals.HIGHLIGHT_UNLOADED_CHUNKS.getBooleanValue())
+            {
+                profiler.popPush("overlay_unloaded_chunks");
+                OverlayRenderer.getInstance().renderUnloadedChunkHighlights(posMatrix, projMatrix, profiler);
+            }
+
             if (DataManager.getToolMode() == ToolMode.REBUILD)
             {
                 profiler.popPush("overlay_targeting");

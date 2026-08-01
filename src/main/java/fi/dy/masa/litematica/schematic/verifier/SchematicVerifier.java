@@ -94,6 +94,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private int clientBlocks;
     private int correctStatesCount;
     private IgnoreBlockRegistry ignoreBlockRegistry;
+    private VerifierListRegistry verifierListRegistry;
 
     public SchematicVerifier()
     {
@@ -198,6 +199,12 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public int getUnseenChunks()
     {
         return this.requiredChunks.size();
+    }
+
+    /** The chunks that have not been seen loaded and verified yet. Do not modify. */
+    public Set<ChunkPos> getRequiredChunks()
+    {
+        return this.requiredChunks;
     }
 
     public int getSchematicTotalBlocks()
@@ -414,6 +421,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.worldSchematic = worldSchematic;
         this.schematicPlacement = schematicPlacement;
         this.ignoreBlockRegistry = new IgnoreBlockRegistry();
+        this.verifierListRegistry = new VerifierListRegistry();
 
         this.setCompletionListener(completionListener);
         this.requiredChunks.addAll(schematicPlacement.getTouchedChunks(SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED));
@@ -976,6 +984,28 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
         if (stateClient != stateSchematic && (stateClient.isAir() == false || stateSchematic.isAir() == false))
         {
+            // Blocks excluded by the verifier black-/whitelist are left out of the results
+            // entirely, the same way as mismatch pairs ignored from the verifier GUI
+            if (this.verifierListRegistry.isPositionIgnored(stateSchematic, stateClient))
+            {
+                return;
+            }
+
+            // If the states only differ in properties excluded from the comparison
+            // by the black-/whitelist, count the position as correct
+            if (this.verifierListRegistry.shouldTreatAsCorrect(stateSchematic, stateClient))
+            {
+                ItemUtils.setItemForBlock(this.worldClient, pos, stateClient);
+                this.correctStateCounts.addTo(stateClient, 1);
+
+                if (stateSchematic.isAir() == false)
+                {
+                    ++this.correctStatesCount;
+                }
+
+                return;
+            }
+
             MUTABLE_PAIR.setLeft(stateSchematic);
             MUTABLE_PAIR.setRight(stateClient);
 
