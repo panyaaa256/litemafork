@@ -185,7 +185,7 @@ public class MaterialListUtils
            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
            if (entitiesList != null) {
                for (EntityInfo entityInfo : entitiesList) {
-                   String id = entityInfo.nbt.getStringOr("id", "");
+                   String id = entityInfo.nbt().getStringOr("id", "");
                    if (!id.isEmpty()) {
                        Identifier identifier = Identifier.tryParse(id);
                        Item item = BuiltInRegistries.ITEM.getValue(identifier);
@@ -210,8 +210,8 @@ public class MaterialListUtils
                 listTag.addAll(containerTag.getListOrEmpty("Items"));
             }
             for (EntityInfo entityInfo : entitiesList) {
-                if (entityInfo.nbt.contains("Items")) {
-                    listTag.addAll(entityInfo.nbt.getListOrEmpty("Items"));
+                if (entityInfo.nbt().contains("Items")) {
+                    listTag.addAll(entityInfo.nbt().getListOrEmpty("Items"));
                 }
             }
             for (Tag tag : listTag) {

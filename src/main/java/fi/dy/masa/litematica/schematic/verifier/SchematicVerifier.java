@@ -1072,7 +1072,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void verifyEntitiesInBox(ChunkPos chunkPos, int startX, int startY, int startZ, int endX, int endY, int endZ)
     {
-        List<Entity> schematicEntities = this.worldSchematic.getEntitiesByChunk(chunkPos.x, chunkPos.z, SchematicVerifier::isVerifiableEntity);
+        List<Entity> schematicEntities = this.worldSchematic.getEntitiesByChunk(chunkPos.x(), chunkPos.z(), SchematicVerifier::isVerifiableEntity);
         final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
 
         for (Entity schematicEntity : schematicEntities)
@@ -1151,8 +1151,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
             if (stack == null || stack.isEmpty())
             {
-                SpawnEggItem egg = SpawnEggItem.byId(type);
-                stack = egg != null ? new ItemStack(egg) : ItemStack.EMPTY;
+                stack = SpawnEggItem.byId(type).map(ItemStack::new).orElse(ItemStack.EMPTY);
             }
 
             this.entityMismatchStacks.put(type, stack);

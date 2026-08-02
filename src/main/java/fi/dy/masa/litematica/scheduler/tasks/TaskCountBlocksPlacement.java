@@ -87,7 +87,7 @@ public class TaskCountBlocksPlacement extends TaskCountBlocksBase
 
     protected void countEntitiesInChunk(ChunkPos pos)
     {
-        List<Entity> entities = this.schematicWorld.getEntitiesByChunk(pos.x, pos.z, EntityUtils.NOT_PLAYER);
+        List<Entity> entities = this.schematicWorld.getEntitiesByChunk(pos.x(), pos.z(), EntityUtils.NOT_PLAYER);
 
         for (Entity entity : entities)
         {

@@ -435,7 +435,7 @@ public class OverlayRenderer
         float lineWidth = 1.5f;
 
         profiler.push("side_quads");
-        RenderContext ctx = new RenderContext(() -> "litematica:unloaded_chunks/side_quads", MaLiLibPipelines.POSITION_COLOR_TRANSLUCENT_NO_DEPTH_NO_CULL);
+        RenderContext ctx = new RenderContext(() -> "litematica:unloaded_chunks/side_quads", MaLiLibPipelines.POSITION_COLOR_TRANSLUCENT_NO_DEPTH_NO_CULL, 0);
         BufferBuilder buffer = ctx.getBuilder();
 
         for (ChunkPos pos : chunks)
@@ -460,7 +460,7 @@ public class OverlayRenderer
         catch (Exception ignored) { }
 
         profiler.popPush("outlines");
-        buffer = ctx.start(() -> "litematica:unloaded_chunks/outlines", MaLiLibPipelines.DEBUG_LINES_MASA_SIMPLE_NO_DEPTH_NO_CULL);
+        buffer = ctx.start(() -> "litematica:unloaded_chunks/outlines", MaLiLibPipelines.DEBUG_LINES_MASA_SIMPLE_NO_DEPTH_NO_CULL, 0);
 
         for (ChunkPos pos : chunks)
         {

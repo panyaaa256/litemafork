@@ -1425,7 +1425,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
                         if (SchematicVerifier.shouldHighlightSchematicEntity(entityTmp.getUUID()))
                         {
                             state.outlineColor = 0xFF000000 | Configs.Colors.VERIFIER_ENTITY_HIGHLIGHT_COLOR.getIntegerValue();
-                            renderStates.haveGlowingEntities = true;
+                            renderStates.shouldShowEntityOutlines = true;
                         }
 
 						this.getSchematicRenderState().entityStates.add(state);
