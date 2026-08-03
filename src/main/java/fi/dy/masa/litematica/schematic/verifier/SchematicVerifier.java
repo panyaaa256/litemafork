@@ -14,7 +14,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -38,7 +37,9 @@ import fi.dy.masa.malilib.interfaces.ICompletionListener;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
 import fi.dy.masa.malilib.util.InfoUtils;
-import fi.dy.masa.malilib.util.position.Direction;
+import fi.dy.masa.malilib.util.data.Constants;
+import fi.dy.masa.malilib.util.data.tag.CompoundData;
+import net.minecraft.core.Direction;
 import fi.dy.masa.malilib.util.position.IntBoundingBox;
 import fi.dy.masa.malilib.util.position.LayerRange;
 import fi.dy.masa.litematica.config.Configs;
@@ -617,24 +618,25 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
 
     /** The server has sent its final batch; fill in the totals and wrap up. */
-    public void onServerFinished(CompoundTag totals)
+    public void onServerFinished(CompoundData totals)
     {
-        this.schematicBlocks = totals.getIntOr("SchematicBlocks", 0);
-        this.clientBlocks = totals.getIntOr("WorldBlocks", 0);
-        this.correctStatesCount = totals.getIntOr("CorrectStatesCount", 0);
-        this.serverChunksTotal = totals.getIntOr("TotalChunks", this.serverChunksTotal);
-        this.serverChunksDone = totals.getIntOr("ProcessedChunks", this.serverChunksDone);
-        this.serverUnreadableChunks = totals.getIntOr("UnloadedChunks", 0) + totals.getIntOr("UngeneratedChunks", 0);
+        this.schematicBlocks = totals.getInt("SchematicBlocks");
+        this.clientBlocks = totals.getInt("WorldBlocks");
+        this.correctStatesCount = totals.getInt("CorrectStatesCount");
+        // Keep the running value when the key is absent: getInt() would zero the counters
+        this.serverChunksTotal = totals.contains("TotalChunks", Constants.NBT.TAG_INT) ? totals.getInt("TotalChunks") : this.serverChunksTotal;
+        this.serverChunksDone = totals.contains("ProcessedChunks", Constants.NBT.TAG_INT) ? totals.getInt("ProcessedChunks") : this.serverChunksDone;
+        this.serverUnreadableChunks = totals.getInt("UnloadedChunks") + totals.getInt("UngeneratedChunks");
 
-        int[] states = totals.getIntArray("CorrectStates").orElse(new int[0]);
-        int[] counts = totals.getIntArray("CorrectStateCounts").orElse(new int[0]);
+        int[] states = totals.getIntArray("CorrectStates");
+        int[] counts = totals.getIntArray("CorrectStateCounts");
 
         for (int i = 0; i < Math.min(states.length, counts.length); i++)
         {
             this.correctStateCounts.addTo(Block.stateById(states[i]), counts[i]);
         }
 
-        if (totals.getBooleanOr("Truncated", false))
+        if (totals.getBoolean("Truncated"))
         {
             InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.verifier.server_result_truncated");
         }

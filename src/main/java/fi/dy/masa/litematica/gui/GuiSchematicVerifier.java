@@ -3,7 +3,7 @@ package fi.dy.masa.litematica.gui;
 import javax.annotation.Nullable;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.config.Hotkeys;
-import fi.dy.masa.litematica.data.EntitiesDataStorage;
+import fi.dy.masa.litematica.data.EntityDataManager;
 import fi.dy.masa.litematica.gui.GuiMainMenu.ButtonListenerChangeMenu;
 import fi.dy.masa.litematica.gui.GuiSchematicVerifier.BlockMismatchEntry;
 import fi.dy.masa.litematica.gui.widgets.WidgetListSchematicVerificationResults;
@@ -110,7 +110,7 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
 
         x += this.createButton(x, y, -1, ButtonListener.Type.START) + 4;
 
-        if (EntitiesDataStorage.getInstance().hasServuxFeature("verify"))
+        if (EntityDataManager.getInstance().hasServuxFeature("verify"))
         {
             x += this.createButton(x, y, -1, ButtonListener.Type.START_SERVER) + 4;
         }

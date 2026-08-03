@@ -3,16 +3,17 @@ package fi.dy.masa.litematica.schematic.verifier;
 import java.util.UUID;
 import javax.annotation.Nullable;
 
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.data.Constants;
+import fi.dy.masa.malilib.util.data.tag.CompoundData;
+import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.litematica.Litematica;
-import fi.dy.masa.litematica.data.EntitiesDataStorage;
+import fi.dy.masa.litematica.data.EntityDataManager;
 import fi.dy.masa.litematica.network.ServuxLitematicaHandler;
 import fi.dy.masa.litematica.network.ServuxLitematicaPacket;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
@@ -54,7 +55,7 @@ public class ServerVerifySession
 	 */
 	public boolean start(SchematicVerifier verifier, SchematicPlacement placement)
 	{
-		if (!EntitiesDataStorage.getInstance().hasServuxFeature("verify"))
+		if (!EntityDataManager.getInstance().hasServuxFeature("verify"))
 		{
 			InfoUtils.showGuiOrInGameMessage(MessageType.ERROR, "litematica.message.error.verifier.no_server_support");
 			return false;
@@ -65,7 +66,7 @@ public class ServerVerifySession
 		this.sessionId = UUID.randomUUID();
 		this.verifier = verifier;
 
-		CompoundTag nbt = placement.toNbt(true);
+		CompoundData nbt = placement.toData(true);
 		nbt.putString("Task", "LitematicaVerify");
 		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 
@@ -84,7 +85,7 @@ public class ServerVerifySession
 			return;
 		}
 
-		CompoundTag nbt = new CompoundTag();
+		CompoundData nbt = new CompoundData();
 		nbt.putString("Task", "LitematicaVerifyCancel");
 		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 
@@ -100,33 +101,33 @@ public class ServerVerifySession
 	}
 
 	/** True when a reply names the session we are actually waiting on. */
-	private boolean matches(CompoundTag nbt)
+	private boolean matches(CompoundData nbt)
 	{
-		UUID id = uuidFromIntArray(nbt.getIntArray("SessionId").orElse(null));
+		UUID id = uuidFromIntArray(nbt.getIntArray("SessionId"));
 
 		return this.sessionId != null && this.sessionId.equals(id);
 	}
 
 	/** Progress ping while the server is still walking chunks. Returns true when it was ours. */
-	public boolean handleStatus(CompoundTag nbt)
+	public boolean handleStatus(CompoundData nbt)
 	{
 		if (!this.matches(nbt) || this.verifier == null)
 		{
 			return false;
 		}
 
-		this.verifier.onServerProgress(nbt.getIntOr("ChunksDone", 0),
-		                               nbt.getIntOr("ChunksTotal", 0),
-		                               nbt.getIntOr("Mismatches", 0));
+		this.verifier.onServerProgress(nbt.getInt("ChunksDone"),
+		                               nbt.getInt("ChunksTotal"),
+		                               nbt.getInt("Mismatches"));
 
 		return true;
 	}
 
 	/** A failure the server reports as a translation key, so it renders in our language. */
-	public void handleError(CompoundTag nbt)
+	public void handleError(CompoundData nbt)
 	{
 		// An error can arrive before we know the session id is valid, so do not filter it
-		String key = nbt.getStringOr("Key", "");
+		String key = nbt.getString("Key");
 
 		if (!key.isEmpty())
 		{
@@ -145,14 +146,14 @@ public class ServerVerifySession
 	 * Decodes one result batch and acknowledges it, which is what pulls the next one out
 	 * of the server. The final batch also carries the run totals.
 	 */
-	public void handleResult(CompoundTag nbt)
+	public void handleResult(CompoundData nbt)
 	{
 		if (!this.matches(nbt) || this.verifier == null)
 		{
 			return;
 		}
 
-		int[] paletteIds = nbt.getIntArray("StatePalette").orElse(new int[0]);
+		int[] paletteIds = nbt.getIntArray("StatePalette");
 		BlockState[] palette = new BlockState[paletteIds.length];
 
 		for (int i = 0; i < paletteIds.length; i++)
@@ -162,19 +163,21 @@ public class ServerVerifySession
 			palette[i] = Block.stateById(paletteIds[i]);
 		}
 
-		ListTag entries = nbt.getListOrEmpty("Entries");
+		ListData entries = nbt.getList("Entries");
 
-		for (int i = 0; i < entries.size(); i++)
+		for (int i = 0; entries != null && i < entries.size(); i++)
 		{
-			CompoundTag entry = entries.getCompound(i).orElse(null);
+			CompoundData entry = entries.getCompoundAt(i);
 
 			if (entry == null)
 			{
 				continue;
 			}
 
-			int expectedIndex = entry.getIntOr("Expected", -1);
-			int foundIndex = entry.getIntOr("Found", -1);
+			// getInt() yields 0 for an absent key, so require the key to be present
+			// rather than letting a malformed entry resolve to palette slot 0
+			int expectedIndex = entry.contains("Expected", Constants.NBT.TAG_INT) ? entry.getInt("Expected") : -1;
+			int foundIndex = entry.contains("Found", Constants.NBT.TAG_INT) ? entry.getInt("Found") : -1;
 
 			if (expectedIndex < 0 || expectedIndex >= palette.length ||
 				foundIndex < 0 || foundIndex >= palette.length)
@@ -182,22 +185,23 @@ public class ServerVerifySession
 				continue;
 			}
 
-			this.verifier.addServerMismatch(entry.getStringOr("Type", ""),
+			this.verifier.addServerMismatch(entry.getString("Type"),
 			                                palette[expectedIndex],
 			                                palette[foundIndex],
-			                                entry.getLongArray("Positions").orElse(new long[0]));
+			                                entry.getLongArray("Positions"));
 		}
 
-		final int batch = nbt.getIntOr("Batch", 0);
-		final boolean last = nbt.getBooleanOr("Final", false);
+		final int batch = nbt.getInt("Batch");
+		final boolean last = nbt.getBoolean("Final");
 
 		if (last)
 		{
-			this.verifier.onServerFinished(nbt.getCompound("Totals").orElseGet(CompoundTag::new));
+			CompoundData totals = nbt.getCompound("Totals");
+			this.verifier.onServerFinished(totals != null ? totals : new CompoundData());
 		}
 
 		// Acknowledge either way: the server frees the session on the final ack
-		CompoundTag ack = new CompoundTag();
+		CompoundData ack = new CompoundData();
 		ack.putString("Task", "LitematicaVerifyAck");
 		ack.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 		ack.putInt("Batch", batch);

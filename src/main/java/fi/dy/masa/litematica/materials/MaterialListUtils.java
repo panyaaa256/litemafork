@@ -25,6 +25,8 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import fi.dy.masa.malilib.registry.Registry;
 import fi.dy.masa.malilib.util.InventoryUtils;
 import fi.dy.masa.malilib.util.data.ItemType;
+import fi.dy.masa.malilib.util.data.tag.CompoundData;
+import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.malilib.util.nbt.NbtInventory;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
@@ -185,7 +187,7 @@ public class MaterialListUtils
            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
            if (entitiesList != null) {
                for (EntityInfo entityInfo : entitiesList) {
-                   String id = entityInfo.nbt().getStringOr("id", "");
+                   String id = entityInfo.nbt().getString("id");
                    if (!id.isEmpty()) {
                        Identifier identifier = Identifier.tryParse(id);
                        Item item = BuiltInRegistries.ITEM.getValue(identifier);
@@ -203,19 +205,18 @@ public class MaterialListUtils
     {
         Object2IntOpenHashMap<ItemType> containersTotal = new Object2IntOpenHashMap<>();
         for (String regionName : subRegions) {
-            Collection <CompoundTag> containersList = schematic.getBlockEntityMapForRegion(regionName).values();
+            Collection<CompoundData> containersList = schematic.getBlockEntityMapForRegion(regionName).values();
             List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
-            ListTag listTag = new ListTag();
-            for (CompoundTag containerTag : containersList) {
-                listTag.addAll(containerTag.getListOrEmpty("Items"));
+            ListData listTag = new ListData();
+            for (CompoundData containerTag : containersList) {
+                addAllItems(listTag, containerTag);
             }
             for (EntityInfo entityInfo : entitiesList) {
-                if (entityInfo.nbt().contains("Items")) {
-                    listTag.addAll(entityInfo.nbt().getListOrEmpty("Items"));
-                }
+                addAllItems(listTag, entityInfo.nbt());
             }
-            for (Tag tag : listTag) {
-                if (tag instanceof CompoundTag itemTag) {
+            for (int i = 0; i < listTag.size(); i++) {
+                CompoundData itemTag = listTag.getCompoundAt(i);
+                if (itemTag != null) {
                     accumulateContainerItem(itemTag, containersTotal);
                 }
             }
@@ -229,25 +230,46 @@ public class MaterialListUtils
      * unpacks one extra level of "minecraft:container" contents if the item itself is a shulker box.
      * Bundles are intentionally not unpacked here.
      */
-    private static void accumulateContainerItem(CompoundTag itemTag, Object2IntOpenHashMap<ItemType> containersTotal)
+    private static void accumulateContainerItem(CompoundData itemTag, Object2IntOpenHashMap<ItemType> containersTotal)
     {
         addItemTagCount(itemTag, containersTotal);
 
-        CompoundTag components = itemTag.getCompoundOrEmpty("components");
-        ListTag shulkerItems = components.getListOrEmpty("minecraft:container");
+        CompoundData components = itemTag.getCompound("components");
 
-        for (Tag slotTag : shulkerItems) {
-            if (slotTag instanceof CompoundTag slotCompound && slotCompound.contains("item")) {
-                addItemTagCount(slotCompound.getCompoundOrEmpty("item"), containersTotal);
+        if (components == null) {
+            return;
+        }
+
+        ListData shulkerItems = components.getList("minecraft:container");
+
+        for (int i = 0; shulkerItems != null && i < shulkerItems.size(); i++) {
+            CompoundData slotCompound = shulkerItems.getCompoundAt(i);
+
+            if (slotCompound != null) {
+                CompoundData inner = slotCompound.getCompound("item");
+
+                if (inner != null) {
+                    addItemTagCount(inner, containersTotal);
+                }
             }
         }
     }
 
-    private static void addItemTagCount(CompoundTag itemTag, Object2IntOpenHashMap<ItemType> total)
+    /** Appends the "Items" list of a container/entity tag, if it has one. */
+    private static void addAllItems(ListData out, CompoundData tag)
     {
-        Identifier identifier = Identifier.tryParse(itemTag.getStringOr("id", ""));
+        ListData items = tag != null ? tag.getList("Items") : null;
+
+        if (items != null) {
+            out.addAll(items);
+        }
+    }
+
+    private static void addItemTagCount(CompoundData itemTag, Object2IntOpenHashMap<ItemType> total)
+    {
+        Identifier identifier = Identifier.tryParse(itemTag.getString("id"));
         Item item = BuiltInRegistries.ITEM.getValue(identifier);
-        int count = itemTag.getIntOr("count", 0);
+        int count = itemTag.getInt("count");
         ItemType itemType = new ItemType(new ItemStack(item), false);
         total.addTo(itemType, count);
     }
