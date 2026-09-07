@@ -6,7 +6,6 @@ import java.util.List;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
-import fi.dy.masa.litematica.Litematica;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.ItemStack;
 
@@ -206,8 +205,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             x += this.createButton(x, y, ButtonListener.Type.LIST_TYPE) + gap;
         }
 
-        x += this.createButton(x, y, -1, ButtonListener.Type.ENTITIES_INCLUSION_TYPE) + gap;
-        x += this.createButton(x, y, -1, ButtonListener.Type.CONTAINERS_INCLUSION_TYPE) + gap;
+        x += this.createButton(x, y, ButtonListener.Type.ENTITIES_INCLUSION_TYPE) + gap;
+        x += this.createButton(x, y, ButtonListener.Type.CONTAINERS_INCLUSION_TYPE) + gap;
         x += this.createButtonOnOff(x, y, -1, this.materialList.getHideAvailable(), ButtonListener.Type.HIDE_AVAILABLE) + gap;
         x += this.createButtonOnOff(x, y, -1, this.materialList.getHudRenderer().getShouldRenderCustom(), ButtonListener.Type.TOGGLE_INFO_HUD) + gap;
 
@@ -290,14 +289,6 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
                 button.setHoverStrings(this.exportType.getHoverText());
             }
         }
-        else if (type == ButtonListener.Type.ENTITIES_INCLUSION_TYPE)
-        {
-            label = type.getDisplayName(this.materialList.getEntitiesInclusionType().getDisplayName());
-        }
-        else if (type == ButtonListener.Type.CONTAINERS_INCLUSION_TYPE)
-        {
-            label = type.getDisplayName(this.materialList.getContainersInclusionType().getDisplayName());
-        }
         else
         {
             String label = type.getDisplayName();
@@ -306,6 +297,14 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
             if (type == ButtonListener.Type.LIST_TYPE)
             {
                 label = type.getDisplayName(this.materialList.getMaterialListType().getDisplayName());
+            }
+            else if (type == ButtonListener.Type.ENTITIES_INCLUSION_TYPE)
+            {
+                label = type.getDisplayName(this.materialList.getEntitiesInclusionType().getDisplayName());
+            }
+            else if (type == ButtonListener.Type.CONTAINERS_INCLUSION_TYPE)
+            {
+                label = type.getDisplayName(this.materialList.getContainersInclusionType().getDisplayName());
             }
 
             buttonWidth = this.getStringWidth(label) + 10;
