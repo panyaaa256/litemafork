@@ -518,6 +518,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         this.serverChunksDone = chunksDone;
         this.serverChunksTotal = chunksTotal;
+
+        this.updateRequiredChunksStringList();
     }
 
     /**
@@ -1518,7 +1520,35 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     public void updateRequiredChunksStringList()
     {
+        // In server mode requiredChunks is never populated - the server does the walking, so
+        // there is no local pending-chunk list to show. Without this the info HUD would sit
+        // completely blank for the whole run, which reads as "nothing is happening"
+        if (this.serverMode)
+        {
+            this.updateInfoHudLinesServerProgress();
+            return;
+        }
+
         this.updateInfoHudLinesPendingChunks(this.requiredChunks);
+    }
+
+    /** The server side counterpart of the pending-chunk list: counts rather than positions. */
+    private void updateInfoHudLinesServerProgress()
+    {
+        this.infoHudLines.clear();
+
+        String green = GuiBase.TXT_GREEN;
+        String gold = GuiBase.TXT_GOLD;
+        String rst = GuiBase.TXT_RST;
+        final int unseen = this.getUnseenChunks();
+
+        this.infoHudLines.add(String.format("%s%s%s", GuiBase.TXT_BOLD,
+                                            StringUtils.translate("litematica.hud.server_task.title", "Verify"), rst));
+        this.infoHudLines.add(StringUtils.translate("litematica.hud.server_task.chunks",
+                                                    green + this.serverChunksDone + rst,
+                                                    green + this.serverChunksTotal + rst));
+        this.infoHudLines.add(StringUtils.translate("litematica.hud.server_task.unseen",
+                                                    (unseen > 0 ? gold : green) + unseen + rst));
     }
 
     /**
