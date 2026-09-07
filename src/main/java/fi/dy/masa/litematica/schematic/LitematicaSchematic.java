@@ -1404,7 +1404,12 @@ public class LitematicaSchematic
 	@Deprecated(forRemoval = true)
 	public CompoundTag writeToNBT()
 	{
-		return DataConverterNbt.toVanillaCompound(this.writeToData());
+		// The local is kept on purpose: TweakerMore's lmOriginOverride tweak does an
+		// @ModifyVariable(method = "writeToNBT", at = @At("TAIL")) on a CompoundTag local here,
+		// and fails the mixin apply (crashing on world join) if there is no candidate variable.
+		CompoundTag nbt = DataConverterNbt.toVanillaCompound(this.writeToData());
+
+		return nbt;
 	}
 
 	public CompoundData writeToData()
