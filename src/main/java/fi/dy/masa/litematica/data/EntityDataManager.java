@@ -1,9 +1,11 @@
 package fi.dy.masa.litematica.data;
 
 import java.util.*;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import com.google.gson.JsonObject;
 import org.apache.commons.lang3.tuple.Pair;
+import org.jetbrains.annotations.ApiStatus;
 
 import com.mojang.datafixers.util.Either;
 import net.minecraft.client.Minecraft;
@@ -12,7 +14,6 @@ import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
@@ -32,6 +33,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.AABB;
 
+import fi.dy.masa.malilib.MaLiLibReference;
 import fi.dy.masa.malilib.config.options.ConfigBoolean;
 import fi.dy.masa.malilib.interfaces.IClientTickHandler;
 import fi.dy.masa.malilib.interfaces.IDataSyncer;
@@ -48,6 +50,7 @@ import fi.dy.masa.malilib.util.data.Constants;
 import fi.dy.masa.malilib.util.data.DataEntityUtils;
 import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
+import fi.dy.masa.malilib.util.data.tag.StringData;
 import fi.dy.masa.malilib.util.data.tag.converter.DataConverterNbt;
 import fi.dy.masa.malilib.util.data.tag.util.DataTypeUtils;
 import fi.dy.masa.malilib.util.data_syncer.EntityDataCache;
@@ -59,6 +62,7 @@ import fi.dy.masa.litematica.Reference;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.network.ServuxLitematicaHandler;
 import fi.dy.masa.litematica.network.ServuxLitematicaPacket;
+import fi.dy.masa.litematica.scheduler.info_hud.InfoHudSync;
 import fi.dy.masa.litematica.util.EntityUtils;
 import fi.dy.masa.litematica.util.PositionUtils;
 import fi.dy.masa.litematica.util.WorldUtils;
@@ -78,7 +82,7 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
     private final Minecraft mc;
     private ClientLevel clientWorld;
     private boolean servuxServer = false;
-    private final java.util.Set<String> servuxFeatures = new java.util.HashSet<>();
+    private final Set<String> servuxFeatures = new HashSet<>();
     private boolean hasInValidServux = false;
     private String servuxVersion;
     // Wait 5 seconds for loaded Client Chunks to receive Entity Data
@@ -102,6 +106,8 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
     // Backup Chunk Saving task
     private final HashMap<ChunkPos, Set<BlockPos>> pendingBackupChunk_BlockEntities = new HashMap<>();
     private final HashMap<ChunkPos, Set<Integer>>  pendingBackupChunk_Entities      = new HashMap<>();
+
+    private InfoHudSync infoSync = null;
 
     @Override
     @Nullable
@@ -139,26 +145,36 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
         if ((now - this.lastTickTime) > 50)
         {
             // In this block, we do something every server tick
-            if (Configs.Generic.ENTITY_DATA_SYNC.getBooleanValue() == false)
+            if (!Configs.Generic.ENTITY_DATA_SYNC.getBooleanValue())
             {
-                this.lastTickTime = now;
-
-                if (DataManager.getInstance().hasIntegratedServer() == false && this.hasServuxServer())
+                if (this.mc.level == null || this.mc.player == null)
                 {
-                    this.servuxServer = false;
-                    HANDLER.unregisterPlayReceiver();
-                }
-
-                if (Configs.Generic.ENTITY_DATA_SYNC_BACKUP.getBooleanValue() == false)
-                {
-                    this.requestTracker.clearAll();
+                    this.getCache().clearAll();
+                    this.getRequestTracker().clearAll();
+                    this.lastTickTime = now;
                     return;
                 }
+
+                if (!DataManager.getInstance().hasIntegratedServer() && this.hasServuxServer())
+                {
+                    this.servuxServer = false;
+                    HANDLER.encodeClientData(ServuxLitematicaPacket.UnregisterReply(new CompoundData()));
+                    HANDLER.unregisterPlayReceiver();
+                    HANDLER.reset(this.getNetworkChannel());
+                }
+
+                if (!Configs.Generic.ENTITY_DATA_SYNC_BACKUP.getBooleanValue())
+                {
+                    this.requestTracker.clearAll();
+//                    this.lastTickTime = now;
+//                    return;
+                }
             }
-            else if (DataManager.getInstance().hasIntegratedServer() == false &&
-                    this.hasServuxServer() == false &&
-                    this.hasInValidServux == false &&
-                    this.getBestWorld() != null)
+            else if (Configs.Generic.ENTITY_DATA_SYNC.getBooleanValue() &&
+		            !DataManager.getInstance().hasIntegratedServer() &&
+		            !this.hasServuxServer() &&
+		            !this.hasInValidServux &&
+                     this.getBestWorld() != null)
             {
                 // Make sure we're Play Registered, and request Metadata
                 HANDLER.registerPlayReceiver(ServuxLitematicaPacket.Payload.ID, HANDLER::receivePlayPayload);
@@ -266,6 +282,12 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
         this.pendingChunkTimeout.clear();
         this.pendingBackupChunk_BlockEntities.clear();
         this.pendingBackupChunk_Entities.clear();
+
+        if (this.infoSync != null)
+        {
+            this.infoSync.clearInfo();
+            this.infoSync = null;
+        }
     }
 
     private boolean shouldUseQuery()
@@ -331,14 +353,40 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
     public long getCacheTimeout()
     {
         // Increase cache timeout when in Backup Mode.
-        int modifier = Configs.Generic.ENTITY_DATA_SYNC_BACKUP.getBooleanValue() ? 5 : 1;
-        return (long) (MathUtils.clamp((Configs.Generic.ENTITY_DATA_SYNC_CACHE_TIMEOUT.getFloatValue() * modifier), 1.0f, 50.0f) * 1000L);
+        int modifier = 1;
+
+        if (!this.hasServuxServer())
+        {
+            if (!this.hasBackupStatus())
+            {
+                modifier = 10;
+            }
+            else
+            {
+                modifier = 5;
+            }
+        }
+
+        return (long) (MathUtils.clamp((Configs.Generic.ENTITY_DATA_SYNC_CACHE_TIMEOUT.getFloatValue() * modifier), 1.0f, 500.0f) * 1000L);
     }
 
     private long getCacheTimeoutLong()
     {
         // Increase cache timeout when in Backup Mode.
-        final int modifier = Configs.Generic.ENTITY_DATA_SYNC_BACKUP.getBooleanValue() ? 5 : 1;
+        int modifier = 1;
+
+        if (!this.hasServuxServer())
+        {
+            if (!this.hasBackupStatus())
+            {
+                modifier = 10;
+            }
+            else
+            {
+                modifier = 5;
+            }
+        }
+
         final long result = (long) (MathUtils.clamp(((Configs.Generic.ENTITY_DATA_SYNC_CACHE_TIMEOUT.getFloatValue() * modifier) * LONG_CACHE_TIMEOUT), 120.0f, (300.0f * modifier)) * 1000L);
 
         // Add extra time if using QueryNbt only
@@ -474,30 +522,43 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
 
 	public void requestMetadata()
     {
-        if (DataManager.getInstance().hasIntegratedServer() == false &&
+        if (!DataManager.getInstance().hasIntegratedServer() &&
             Configs.Generic.ENTITY_DATA_SYNC.getBooleanValue())
         {
-            CompoundTag nbt = new CompoundTag();
-            nbt.putString("version", Reference.MOD_STRING);
-
+            CompoundData nbt = new CompoundData();
+            nbt.putInt("version", ServuxLitematicaPacket.PROTOCOL_VERSION);
             HANDLER.encodeClientData(ServuxLitematicaPacket.MetadataRequest(nbt));
         }
     }
 
-    public boolean receiveServuxMetadata(CompoundTag data)
+    public boolean receiveServuxMetadata(CompoundData data)
     {
-        if (DataManager.getInstance().hasIntegratedServer() == false)
+        if (!DataManager.getInstance().hasIntegratedServer())
         {
             Litematica.debugLog("LitematicDataChannel: received METADATA from Servux");
 
             if (Configs.Generic.ENTITY_DATA_SYNC.getBooleanValue())
             {
-                if (data.getIntOr("version", -1) != ServuxLitematicaPacket.PROTOCOL_VERSION)
+                final int version = data.getIntOrDefault("version", -1);
+                final String servux = data.getStringOrDefault("servux", "?");
+
+                if (version != ServuxLitematicaPacket.PROTOCOL_VERSION || !servux.startsWith("servux-"+Reference.MOD_TYPE+"-"+MaLiLibReference.MC_VERSION))
                 {
-                    Litematica.LOGGER.warn("LitematicDataChannel: Mis-matched protocol version!");
+                    Litematica.LOGGER.warn("LitematicDataChannel: Mis-matched protocol version! (Expected: {} but got {} running on: {})", ServuxLitematicaPacket.PROTOCOL_VERSION, version, servux);
+
+                    if (version > 2)
+                    {
+                        HANDLER.encodeClientData(ServuxLitematicaPacket.UnregisterReply(new CompoundData()));
+                    }
+
+                    HANDLER.unregisterPlayReceiver();
+                    HANDLER.reset(this.getNetworkChannel());
+                    Configs.Generic.ENTITY_DATA_SYNC.setBooleanValue(false);
+                    return false;
                 }
 
-                this.setServuxVersion(data.getStringOr("servux", "?"));
+                Litematica.debugLog("LitematicDataChannel: Connected to: {}", servux);
+                this.setServuxVersion(servux);
                 this.setIsServuxServer();
                 this.readServuxFeatures(data);
 
@@ -515,15 +576,23 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
      * version, because a version bump would lock out every client that does not know about
      * the new feature. Clients branch on the capability instead.
      */
-    private void readServuxFeatures(CompoundTag data)
+    private void readServuxFeatures(CompoundData data)
     {
         this.servuxFeatures.clear();
 
-        ListTag list = data.getListOrEmpty("Features");
+        ListData list = data.getList("Features");
+
+        if (list == null)
+        {
+            return;
+        }
 
         for (int i = 0; i < list.size(); i++)
         {
-            this.servuxFeatures.add(list.getStringOr(i, ""));
+            if (list.get(i) instanceof StringData str)
+            {
+                this.servuxFeatures.add(str.getString());
+            }
         }
     }
 
@@ -549,6 +618,60 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
 
         // Do something?
     }
+
+    @ApiStatus.Experimental
+    public void sendServuxTaskRequest(CompoundData data, @Nonnull InfoHudSync infoSync)
+    {
+        if (this.hasServuxServer() &&
+            data != null && data.contains("Task", Constants.NBT.TAG_STRING))
+        {
+            this.infoSync = infoSync;
+            HANDLER.encodeClientData(ServuxLitematicaPacket.TaskRequest(data));
+        }
+    }
+
+    public void setInfoHudSync(@Nonnull InfoHudSync infoSync)
+    {
+        if (this.infoSync != null)
+        {
+            this.infoSync.clearInfo();
+        }
+
+        this.infoSync = infoSync;
+    }
+
+//    @ApiStatus.Experimental
+//    public void receiveServuxTaskResponse(CompoundData data)
+//    {
+//        if (this.hasServuxServer())
+//        {
+//            // TODO (For things like Delete, Fill, etc)
+//        }
+//    }
+
+    @ApiStatus.Experimental
+    public void receiveServuxTaskStatusSync(CompoundData data)
+    {
+        if (this.hasServuxServer() && this.infoSync != null)
+        {
+            this.infoSync.onReceiveInfoSync(data);
+
+            if (this.infoSync.isComplete())
+            {
+                this.infoSync.clearInfo();
+                this.infoSync = null;
+            }
+        }
+    }
+
+//    @ApiStatus.Experimental
+//    public void sendServuxTaskCancel(CompoundData data)
+//    {
+//        if (this.hasServuxServer())
+//        {
+//            // TODO (For things like Delete, Fill, etc)
+//        }
+//    }
 
     /**
      * These are required due to the Schematic World
@@ -708,7 +831,12 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
     public void requestServuxBulkEntityData(ChunkPos chunkPos, int minY, int maxY)
     {
         if (!this.hasServuxServer()) { return; }
-        CompoundTag req = new CompoundTag();
+        CompoundData req = new CompoundData();
+
+        if (this.pendingChunks.isEmpty())
+        {
+            this.setInfoHudSync(new InfoHudSync(null));
+        }
 
         this.completedChunks.remove(chunkPos);
         this.pendingChunks.add(chunkPos);

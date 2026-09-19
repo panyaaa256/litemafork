@@ -2,6 +2,14 @@ package fi.dy.masa.litematica.schematic.verifier;
 
 import java.util.*;
 import javax.annotation.Nullable;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Lists;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import org.apache.commons.lang3.tuple.MutablePair;
+import org.apache.commons.lang3.tuple.Pair;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -18,17 +26,12 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Lists;
-import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
-import org.apache.commons.lang3.tuple.MutablePair;
-import org.apache.commons.lang3.tuple.Pair;
+
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.interfaces.ICompletionListener;
@@ -36,9 +39,9 @@ import fi.dy.masa.malilib.util.IntBoundingBox;
 import fi.dy.masa.malilib.util.LayerRange;
 import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Color4f;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.world.level.block.Block;
 import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.data.Constants;
+import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.render.infohud.IInfoHudRenderer;
@@ -515,6 +518,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         this.serverChunksDone = chunksDone;
         this.serverChunksTotal = chunksTotal;
+
+        this.updateRequiredChunksStringList();
     }
 
     /**
@@ -615,24 +620,25 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
 
     /** The server has sent its final batch; fill in the totals and wrap up. */
-    public void onServerFinished(CompoundTag totals)
+    public void onServerFinished(CompoundData totals)
     {
-        this.schematicBlocks = totals.getIntOr("SchematicBlocks", 0);
-        this.clientBlocks = totals.getIntOr("WorldBlocks", 0);
-        this.correctStatesCount = totals.getIntOr("CorrectStatesCount", 0);
-        this.serverChunksTotal = totals.getIntOr("TotalChunks", this.serverChunksTotal);
-        this.serverChunksDone = totals.getIntOr("ProcessedChunks", this.serverChunksDone);
-        this.serverUnreadableChunks = totals.getIntOr("UnloadedChunks", 0) + totals.getIntOr("UngeneratedChunks", 0);
+        this.schematicBlocks = totals.getInt("SchematicBlocks");
+        this.clientBlocks = totals.getInt("WorldBlocks");
+        this.correctStatesCount = totals.getInt("CorrectStatesCount");
+        // Keep the running value when the key is absent: getInt() would zero the counters
+        this.serverChunksTotal = totals.contains("TotalChunks", Constants.NBT.TAG_INT) ? totals.getInt("TotalChunks") : this.serverChunksTotal;
+        this.serverChunksDone = totals.contains("ProcessedChunks", Constants.NBT.TAG_INT) ? totals.getInt("ProcessedChunks") : this.serverChunksDone;
+        this.serverUnreadableChunks = totals.getInt("UnloadedChunks") + totals.getInt("UngeneratedChunks");
 
-        int[] states = totals.getIntArray("CorrectStates").orElse(new int[0]);
-        int[] counts = totals.getIntArray("CorrectStateCounts").orElse(new int[0]);
+        int[] states = totals.getIntArray("CorrectStates");
+        int[] counts = totals.getIntArray("CorrectStateCounts");
 
         for (int i = 0; i < Math.min(states.length, counts.length); i++)
         {
             this.correctStateCounts.addTo(Block.stateById(states[i]), counts[i]);
         }
 
-        if (totals.getBooleanOr("Truncated", false))
+        if (totals.getBoolean("Truncated"))
         {
             InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.verifier.server_result_truncated");
         }
@@ -1220,9 +1226,12 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 return;
             }
 
-            // If the states only differ in properties excluded from the comparison
-            // by the black-/whitelist, count the position as correct
-            if (this.verifierListRegistry.shouldTreatAsCorrect(stateSchematic, stateClient))
+            // If the states only differ in properties excluded from the comparison by the
+            // black-/whitelist, or only in the crop age while that is ignored, count the
+            // position as correct
+            if (this.verifierListRegistry.shouldTreatAsCorrect(stateSchematic, stateClient) ||
+                (Configs.Visuals.IGNORE_CROP_AGE.getBooleanValue() &&
+                 BlockUtils.areStatesEqualIgnoringAge(stateSchematic, stateClient)))
             {
                 ItemUtils.setItemForBlock(this.worldClient, pos, stateClient);
                 this.correctStateCounts.addTo(stateClient, 1);
@@ -1512,7 +1521,35 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     public void updateRequiredChunksStringList()
     {
+        // In server mode requiredChunks is never populated - the server does the walking, so
+        // there is no local pending-chunk list to show. Without this the info HUD would sit
+        // completely blank for the whole run, which reads as "nothing is happening"
+        if (this.serverMode)
+        {
+            this.updateInfoHudLinesServerProgress();
+            return;
+        }
+
         this.updateInfoHudLinesPendingChunks(this.requiredChunks);
+    }
+
+    /** The server side counterpart of the pending-chunk list: counts rather than positions. */
+    private void updateInfoHudLinesServerProgress()
+    {
+        this.infoHudLines.clear();
+
+        String green = GuiBase.TXT_GREEN;
+        String gold = GuiBase.TXT_GOLD;
+        String rst = GuiBase.TXT_RST;
+        final int unseen = this.getUnseenChunks();
+
+        this.infoHudLines.add(String.format("%s%s%s", GuiBase.TXT_BOLD,
+                                            StringUtils.translate("litematica.hud.server_task.title", "Verify"), rst));
+        this.infoHudLines.add(StringUtils.translate("litematica.hud.server_task.chunks",
+                                                    green + this.serverChunksDone + rst,
+                                                    green + this.serverChunksTotal + rst));
+        this.infoHudLines.add(StringUtils.translate("litematica.hud.server_task.unseen",
+                                                    (unseen > 0 ? gold : green) + unseen + rst));
     }
 
     /**

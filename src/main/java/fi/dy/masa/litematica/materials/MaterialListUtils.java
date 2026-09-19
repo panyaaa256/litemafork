@@ -1,8 +1,8 @@
 package fi.dy.masa.litematica.materials;
 
-import java.util.*;
-
-import fi.dy.masa.litematica.Litematica;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.client.Minecraft;
@@ -20,8 +20,13 @@ import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
+import fi.dy.masa.malilib.registry.Registry;
 import fi.dy.masa.malilib.util.InventoryUtils;
 import fi.dy.masa.malilib.util.ItemType;
+import fi.dy.masa.malilib.util.data.tag.CompoundData;
+import fi.dy.masa.malilib.util.data.tag.ListData;
+import fi.dy.masa.malilib.util.nbt.NbtInventory;
+import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic.EntityInfo;
 import fi.dy.masa.litematica.schematic.container.LitematicaBlockStateContainer;
@@ -73,6 +78,67 @@ public class MaterialListUtils
         return buildEntriesFromItemCounts(total, total.clone(), new Object2IntOpenHashMap<>(), player);
     }
 
+    /**
+     * Creates a material list directly from item types and quantities,
+     * bypassing the block-based conversion system. This allows tracking
+     * of any item type including non-placeable items like tools and food.
+     *
+     * @param items Map of ItemType to quantity
+     * @param player Player entity for inventory tracking (can be null)
+     * @return List of MaterialListEntry objects
+     */
+    public static List<MaterialListEntry> createMaterialListFromItems(
+		    java.util.Map<ItemType, Integer> items, Player player)
+    {
+        List<MaterialListEntry> list = new ArrayList<>();
+
+        if (items.isEmpty())
+        {
+            return list;
+        }
+
+        Object2IntOpenHashMap<ItemType> playerInvItems = null;
+        Object2IntOpenHashMap<ItemType> enderItems = null;
+
+        if (player != null)
+        {
+            playerInvItems = getInventoryItemCounts(player.getInventory());
+            NbtInventory ender = Registry.ENTITY_DATA_REGISTRY.chestTracker().getEnderCache();
+
+            if (Configs.Generic.MATERIAL_LIST_COUNT_ENDER_CACHE.getBooleanValue() && ender != null)
+            {
+                Container ec = ender.toInventory(NbtInventory.DEFAULT_SIZE);
+
+                if (ec != null)
+                {
+                    enderItems = getInventoryItemCounts(ec);
+                }
+            }
+        }
+
+        for (java.util.Map.Entry<ItemType, Integer> entry : items.entrySet())
+        {
+            ItemType type = entry.getKey();
+            int count = entry.getValue();
+            int countAvailable = playerInvItems != null
+                                 ? playerInvItems.getInt(type)
+                                 : 0;
+
+            countAvailable += enderItems != null ? enderItems.getInt(type) : 0;
+
+            // For custom item lists, total = missing (no placement state to compare against)
+            list.add(new MaterialListEntry(
+                type.getStack().copy(),
+                count,           // countTotal
+                count,           // countMissing (all items are "missing" since nothing is placed)
+                0,               // countMismatched (not applicable for custom lists)
+                countAvailable   // countAvailable (from player inventory)
+            ));
+        }
+
+        return list;
+    }
+
     public static List<MaterialListEntry> createBlocksList(LitematicaSchematic schematic)
     {
         return createMaterialListForSchematic(schematic, schematic.getAreas().keySet(), InclusionType.NONE, InclusionType.NONE);
@@ -119,7 +185,7 @@ public class MaterialListUtils
            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
            if (entitiesList != null) {
                for (EntityInfo entityInfo : entitiesList) {
-                   String id = entityInfo.nbt.getStringOr("id", "");
+                   String id = entityInfo.nbt().getString("id");
                    if (!id.isEmpty()) {
                        Identifier identifier = Identifier.tryParse(id);
                        Item item = BuiltInRegistries.ITEM.getValue(identifier);
@@ -137,19 +203,18 @@ public class MaterialListUtils
     {
         Object2IntOpenHashMap<ItemType> containersTotal = new Object2IntOpenHashMap<>();
         for (String regionName : subRegions) {
-            Collection <CompoundTag> containersList = schematic.getBlockEntityMapForRegion(regionName).values();
+            Collection<CompoundData> containersList = schematic.getBlockEntityMapForRegion(regionName).values();
             List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
-            ListTag listTag = new ListTag();
-            for (CompoundTag containerTag : containersList) {
-                listTag.addAll(containerTag.getListOrEmpty("Items"));
+            ListData listTag = new ListData();
+            for (CompoundData containerTag : containersList) {
+                addAllItems(listTag, containerTag);
             }
             for (EntityInfo entityInfo : entitiesList) {
-                if (entityInfo.nbt.contains("Items")) {
-                    listTag.addAll(entityInfo.nbt.getListOrEmpty("Items"));
-                }
+                addAllItems(listTag, entityInfo.nbt());
             }
-            for (Tag tag : listTag) {
-                if (tag instanceof CompoundTag itemTag) {
+            for (int i = 0; i < listTag.size(); i++) {
+                CompoundData itemTag = listTag.getCompoundAt(i);
+                if (itemTag != null) {
                     accumulateContainerItem(itemTag, containersTotal);
                 }
             }
@@ -163,25 +228,46 @@ public class MaterialListUtils
      * unpacks one extra level of "minecraft:container" contents if the item itself is a shulker box.
      * Bundles are intentionally not unpacked here.
      */
-    private static void accumulateContainerItem(CompoundTag itemTag, Object2IntOpenHashMap<ItemType> containersTotal)
+    private static void accumulateContainerItem(CompoundData itemTag, Object2IntOpenHashMap<ItemType> containersTotal)
     {
         addItemTagCount(itemTag, containersTotal);
 
-        CompoundTag components = itemTag.getCompoundOrEmpty("components");
-        ListTag shulkerItems = components.getListOrEmpty("minecraft:container");
+        CompoundData components = itemTag.getCompound("components");
 
-        for (Tag slotTag : shulkerItems) {
-            if (slotTag instanceof CompoundTag slotCompound && slotCompound.contains("item")) {
-                addItemTagCount(slotCompound.getCompoundOrEmpty("item"), containersTotal);
+        if (components == null) {
+            return;
+        }
+
+        ListData shulkerItems = components.getList("minecraft:container");
+
+        for (int i = 0; shulkerItems != null && i < shulkerItems.size(); i++) {
+            CompoundData slotCompound = shulkerItems.getCompoundAt(i);
+
+            if (slotCompound != null) {
+                CompoundData inner = slotCompound.getCompound("item");
+
+                if (inner != null) {
+                    addItemTagCount(inner, containersTotal);
+                }
             }
         }
     }
 
-    private static void addItemTagCount(CompoundTag itemTag, Object2IntOpenHashMap<ItemType> total)
+    /** Appends the "Items" list of a container/entity tag, if it has one. */
+    private static void addAllItems(ListData out, CompoundData tag)
     {
-        Identifier identifier = Identifier.tryParse(itemTag.getStringOr("id", ""));
+        ListData items = tag != null ? tag.getList("Items") : null;
+
+        if (items != null) {
+            out.addAll(items);
+        }
+    }
+
+    private static void addItemTagCount(CompoundData itemTag, Object2IntOpenHashMap<ItemType> total)
+    {
+        Identifier identifier = Identifier.tryParse(itemTag.getString("id"));
         Item item = BuiltInRegistries.ITEM.getValue(identifier);
-        int count = itemTag.getIntOr("count", 0);
+        int count = itemTag.getInt("count");
         ItemType itemType = new ItemType(new ItemStack(item), false);
         total.addTo(itemType, count);
     }
@@ -200,14 +286,28 @@ public class MaterialListUtils
         if (!itemTypesTotal.isEmpty())
         {
             Object2IntOpenHashMap<ItemType> playerInvItems = player != null ? getInventoryItemCounts(player.getInventory()) : new Object2IntOpenHashMap<>();
+            Object2IntOpenHashMap<ItemType> enderItems = null;
+            NbtInventory ender = Registry.ENTITY_DATA_REGISTRY.chestTracker().getEnderCache();
+
+            if (player != null && Configs.Generic.MATERIAL_LIST_COUNT_ENDER_CACHE.getBooleanValue() && ender != null)
+            {
+                Container ec = ender.toInventory(NbtInventory.DEFAULT_SIZE);
+
+                if (ec != null)
+                {
+                    enderItems = getInventoryItemCounts(ec);
+                }
+            }
 
             for (ItemType type : itemTypesTotal.keySet())
             {
+                final int enderCount = enderItems != null ? enderItems.getInt(type) : 0;
+
                 list.add(new MaterialListEntry(type.getStack().copy(),
                                                itemTypesTotal.getInt(type),
                                                itemTypesMissing.getInt(type),
                                                itemTypesMismatch.getInt(type),
-                                               playerInvItems.getInt(type)));
+                                               playerInvItems.getInt(type) + enderCount));
             }
         }
         return list;
@@ -386,11 +486,25 @@ public class MaterialListUtils
     {
         if (player == null) return;
         Object2IntOpenHashMap<ItemType> playerInvItems = getInventoryItemCounts(player.getInventory());
+        Object2IntOpenHashMap<ItemType> enderItems = null;
+        NbtInventory ender = Registry.ENTITY_DATA_REGISTRY.chestTracker().getEnderCache();
+
+        if (Configs.Generic.MATERIAL_LIST_COUNT_ENDER_CACHE.getBooleanValue() && ender != null)
+        {
+            Container ec = ender.toInventory(NbtInventory.DEFAULT_SIZE);
+
+            if (ec != null)
+            {
+                enderItems = getInventoryItemCounts(ec);
+            }
+        }
 
         for (MaterialListEntry entry : list)
         {
             ItemType type = new ItemType(entry.getStack(), true, false);
-            int countAvailable = playerInvItems.getInt(type);
+            int countAvailable = enderItems != null
+                                 ? playerInvItems.getInt(type) + enderItems.getInt(type)
+                                 : playerInvItems.getInt(type);
             entry.setCountAvailable(countAvailable);
         }
     }
@@ -446,6 +560,7 @@ public class MaterialListUtils
     {
         Object2IntOpenHashMap<ItemType> map = new Object2IntOpenHashMap<>();
         NonNullList<ItemStack> items = InventoryUtils.getStoredItems(stackShulkerBox);
+		int multiplier = stackShulkerBox.getCount();
 
         for (ItemStack boxStack : items)
         {
@@ -461,8 +576,8 @@ public class MaterialListUtils
                         bundleMap.forEach(map::addTo);
                     }
                 }
-
-                map.addTo(new ItemType(boxStack, false, false), boxStack.getCount());
+				
+                map.addTo(new ItemType(boxStack, false, false), boxStack.getCount() * multiplier);
             }
         }
 
