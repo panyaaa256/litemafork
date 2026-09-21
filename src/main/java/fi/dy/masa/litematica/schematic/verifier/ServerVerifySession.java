@@ -3,6 +3,7 @@ package fi.dy.masa.litematica.schematic.verifier;
 import java.util.UUID;
 import javax.annotation.Nullable;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -13,6 +14,7 @@ import fi.dy.masa.malilib.util.data.Constants;
 import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.litematica.Litematica;
+import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.data.EntityDataManager;
 import fi.dy.masa.litematica.network.ServuxLitematicaHandler;
 import fi.dy.masa.litematica.network.ServuxLitematicaPacket;
@@ -70,6 +72,8 @@ public class ServerVerifySession
 		CompoundData nbt = placement.toData(true);
 		nbt.putString("Task", "LitematicaVerify");
 		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
+		// Off unless asked for; the server's verify_nbt still decides whether it is allowed
+		nbt.putBoolean("VerifyNbt", Configs.Generic.VERIFIER_CHECK_CONTENTS.getBooleanValue());
 
 		Litematica.debugLog("ServerVerifySession: requesting verification of '{}' (session {})", placement.getName(), this.sessionId);
 
@@ -196,6 +200,22 @@ public class ServerVerifySession
 			                                palette[expectedIndex],
 			                                palette[foundIndex],
 			                                entry.getLongArray("Positions"));
+		}
+
+		// Both sides' container data for Wrong Contents positions, for as many as the server
+		// was willing to send; these come after the positions they belong to
+		ListData contents = nbt.getList("Contents");
+
+		for (int i = 0; contents != null && i < contents.size(); i++)
+		{
+			CompoundData entry = contents.getCompoundAt(i);
+
+			if (entry != null && entry.contains("Pos", Constants.NBT.TAG_LONG))
+			{
+				this.verifier.addServerContents(BlockPos.of(entry.getLong("Pos")),
+				                                entry.getCompound("Expected"),
+				                                entry.getCompound("Found"));
+			}
 		}
 
 		final int batch = nbt.getInt("Batch");

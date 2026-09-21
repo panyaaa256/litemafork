@@ -143,7 +143,9 @@ public class Configs implements IConfigHandler
         public static final ConfigOptionList    TRANSLATION_LANGUAGE        = new ConfigOptionList("translationLanguage", new i18nConfig(LANG.orElseThrow())).apply(GENERIC_KEY);
         public static final ConfigOptionList    TRANSLATION_MODE            = new ConfigOptionList("translationMode",     i18nMode.FOLLOW_VANILLA).apply(GENERIC_KEY);
         public static final ConfigBoolean       UNHIDE_SCHEMATIC_PROJECTS   = new ConfigBoolean("unhideSchematicVCS", false).apply(GENERIC_KEY);
+        public static final ConfigBoolean       VERIFIER_CHECK_CONTENTS     = new ConfigBoolean("verifierCheckContents", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       VERIFIER_CHECK_ENTITIES     = new ConfigBoolean("verifierCheckEntities", true).apply(GENERIC_KEY);
+        public static final ConfigBoolean       VERIFIER_GROUP_WRONG_CONTENTS = new ConfigBoolean("verifierGroupWrongContents", false).apply(GENERIC_KEY);
         public static final ConfigDouble        VERIFIER_ENTITY_TOLERANCE   = new ConfigDouble("verifierEntityPositionTolerance", 0.1, 0, 8).apply(GENERIC_KEY);
         public static final ConfigStringList    VERIFIER_BLACKLIST          = new ConfigStringList("verifierBlacklist", ImmutableList.of()).apply(GENERIC_KEY);
         public static final ConfigOptionList    VERIFIER_LIST_TYPE          = new ConfigOptionList("verifierListType", UsageRestriction.ListType.BLACKLIST).apply(GENERIC_KEY);
@@ -231,8 +233,10 @@ public class Configs implements IConfigHandler
                 TOOL_ITEM_ENABLED,
                 UNHIDE_SCHEMATIC_PROJECTS,
                 VERIFIER_BLACKLIST,
+                VERIFIER_CHECK_CONTENTS,
                 VERIFIER_CHECK_ENTITIES,
                 VERIFIER_ENTITY_TOLERANCE,
+                VERIFIER_GROUP_WRONG_CONTENTS,
                 VERIFIER_LIST_TYPE,
                 VERIFIER_WHITELIST,
 

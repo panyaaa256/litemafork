@@ -3,6 +3,7 @@ package fi.dy.masa.litematica.gui.widgets;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
@@ -23,6 +24,7 @@ import fi.dy.masa.malilib.util.game.BlockUtils;
 import fi.dy.masa.litematica.gui.GuiSchematicVerifier;
 import fi.dy.masa.litematica.gui.GuiSchematicVerifier.BlockMismatchEntry;
 import fi.dy.masa.litematica.gui.Icons;
+import fi.dy.masa.litematica.schematic.verifier.ContentsMismatch;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.BlockMismatch;
 import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier.EntityMismatch;
@@ -123,6 +125,12 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
 
         for (BlockMismatch entry : mismatches)
         {
+            // A single container's row shows where it is in place of a count
+            if (entry.pos() != null)
+            {
+                maxCountLength = Math.max(maxCountLength, StringUtils.getStringWidth(entry.pos().toShortString()));
+            }
+
             ItemStack stack = ItemUtils.getItemForState(entry.stateExpected());
             String name = BlockMismatchInfo.getDisplayName(entry.stateExpected(), stack);
             maxNameLengthExpected = Math.max(maxNameLengthExpected, StringUtils.getStringWidth(name));
@@ -311,7 +319,8 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
                 this.drawString(ctx, x2 + 20, y, color, this.mismatchInfo.nameFound);
             }
 
-            this.drawString(ctx, x3, y, color, String.valueOf(this.count));
+            BlockPos pos = this.mismatchEntry.blockMismatch.pos();
+            this.drawString(ctx, x3, y, color, pos != null ? pos.toShortString() : String.valueOf(this.count));
 
             y = this.y + 3;
             RenderUtils.drawRect(ctx, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
@@ -362,6 +371,15 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
     {
         if (this.mismatchInfo != null && this.buttonIgnore != null && mouseX < this.buttonIgnore.getX())
         {
+            // A Wrong Contents row shows the two inventories instead, when the server sent them
+            ContentsMismatchInfo contentsInfo = this.getContentsInfo();
+
+            if (contentsInfo != null)
+            {
+                contentsInfo.renderAtMouse(ctx, mouseX, mouseY);
+                return;
+            }
+
 	        ctx.pose().pushMatrix();
 	        ctx.pose().translate(0, 0);    // 200
 
@@ -385,6 +403,27 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
 
 	        ctx.pose().popMatrix();
         }
+    }
+
+    @Nullable
+    private ContentsMismatchInfo getContentsInfo()
+    {
+        BlockMismatch mismatch = this.mismatchEntry.blockMismatch;
+
+        if (mismatch == null || mismatch.mismatchType() != MismatchType.WRONG_NBT)
+        {
+            return null;
+        }
+
+        ContentsMismatch contents = this.verifier.getContentsMismatchFor(mismatch);
+
+        if (contents == null)
+        {
+            return null;
+        }
+
+        return ContentsMismatchInfo.create(contents, mismatch.stateFound(),
+                                           this.verifier.isContentsSlotExact(), this.verifier.isContentsStrict());
     }
 
     public static class BlockMismatchInfo

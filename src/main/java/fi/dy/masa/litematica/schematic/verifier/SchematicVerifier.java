@@ -89,6 +89,14 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final HashSet<Pair<BlockState, BlockState>> ignoredMismatches = new HashSet<>();
     private final List<BlockPos> missingBlocksPositionsClosest = new ArrayList<>();
     private final List<BlockPos> wrongNbtPositionsClosest = new ArrayList<>();
+    /** Both sides' contents at the Wrong Contents positions the server sent them for. */
+    private final Map<BlockPos, ContentsMismatch> wrongContents = new HashMap<>();
+    /**
+     * Wrong Contents positions ignored one at a time. Every container of a kind shares the
+     * same state pair, so ignoring the pair would ignore all of them; these outlive a run
+     * the same way ignored pairs do.
+     */
+    private final Set<BlockPos> ignoredContentsPositions = new HashSet<>();
     private final List<BlockPos> extraBlocksPositionsClosest = new ArrayList<>();
     private final List<BlockPos> mismatchedBlocksPositionsClosest = new ArrayList<>();
     private final List<BlockPos> mismatchedStatesPositionsClosest = new ArrayList<>();
@@ -124,6 +132,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private boolean serverMode;
     /** Captured when a verification starts, like the verifier lists. */
     private boolean checkEntities;
+    /** How the server compared the contents, so that the same differences get pointed out. */
+    private boolean contentsSlotExact;
+    private boolean contentsStrict;
     private int serverChunksDone;
     private int serverChunksTotal;
     private int serverUnreadableChunks;
@@ -612,6 +623,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         {
             BlockPos pos = BlockPos.of(packed);
 
+            if (type == MismatchType.WRONG_NBT && this.ignoredContentsPositions.contains(pos))
+            {
+                continue;
+            }
+
             map.put(pair, pos);
             this.blockMismatches.put(pos, new BlockMismatch(type, stateSchematic, stateClient, 1));
         }
@@ -645,6 +661,61 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         };
     }
 
+    /** Both sides' data for a Wrong Contents position, which the hover box shows. */
+    public void addServerContents(BlockPos pos, CompoundData expected, CompoundData found)
+    {
+        if (this.ignoredContentsPositions.contains(pos) == false)
+        {
+            this.wrongContents.put(pos, new ContentsMismatch(pos, expected, found));
+        }
+    }
+
+    /**
+     * The contents to show for a Wrong Contents row: that container's, or for a row that
+     * groups several, the closest one's the server sent contents for.
+     */
+    @Nullable
+    public ContentsMismatch getContentsMismatchFor(BlockMismatch mismatch)
+    {
+        if (mismatch.mismatchType() != MismatchType.WRONG_NBT)
+        {
+            return null;
+        }
+
+        if (mismatch.pos() != null)
+        {
+            return this.wrongContents.get(mismatch.pos());
+        }
+
+        Vec3 center = this.mc.player != null ? this.mc.player.position() : Vec3.ZERO;
+        ContentsMismatch closest = null;
+        double closestDistSq = Double.MAX_VALUE;
+
+        for (BlockPos pos : this.wrongNbtPositions.get(Pair.of(mismatch.stateExpected(), mismatch.stateFound())))
+        {
+            ContentsMismatch contents = this.wrongContents.get(pos);
+            double distSq = pos.distToCenterSqr(center);
+
+            if (contents != null && distSq < closestDistSq)
+            {
+                closestDistSq = distSq;
+                closest = contents;
+            }
+        }
+
+        return closest;
+    }
+
+    public boolean isContentsSlotExact()
+    {
+        return this.contentsSlotExact;
+    }
+
+    public boolean isContentsStrict()
+    {
+        return this.contentsStrict;
+    }
+
     /** The server has sent its final batch; fill in the totals and wrap up. */
     public void onServerFinished(CompoundData totals)
     {
@@ -663,6 +734,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         {
             this.correctStateCounts.addTo(Block.stateById(states[i]), counts[i]);
         }
+
+        this.contentsSlotExact = totals.getBoolean("ContentsSlotExact");
+        this.contentsStrict = totals.getBoolean("ContentsStrict");
 
         if (totals.getBoolean("Truncated"))
         {
@@ -747,6 +821,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.extraBlocksPositions.clear();
         this.wrongBlocksPositions.clear();
         this.wrongNbtPositions.clear();
+        this.wrongContents.clear();
+        this.contentsSlotExact = false;
+        this.contentsStrict = false;
         this.wrongStatesPositions.clear();
         this.blockMismatches.clear();
         this.correctStateCounts.clear();
@@ -925,7 +1002,16 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         Pair<BlockState, BlockState> ignore = Pair.of(mismatch.stateExpected, mismatch.stateFound);
 
-        if (this.ignoredMismatches.contains(ignore) == false)
+        if (mismatch.pos() != null)
+        {
+            // One container's row: ignore that container, not every other one of its kind
+            this.ignoredContentsPositions.add(mismatch.pos());
+            this.getMapForMismatchType(mismatch.mismatchType()).remove(ignore, mismatch.pos());
+            this.wrongContents.remove(mismatch.pos());
+            this.blockMismatches.remove(mismatch.pos());
+            this.selectedEntries.remove(mismatch.mismatchType(), mismatch);
+        }
+        else if (this.ignoredMismatches.contains(ignore) == false)
         {
             this.ignoredMismatches.add(ignore);
             this.getMapForMismatchType(mismatch.mismatchType).removeAll(ignore);
@@ -951,6 +1037,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public void resetIgnoredStateMismatches()
     {
         this.ignoredMismatches.clear();
+        this.ignoredContentsPositions.clear();
     }
 
     public Set<Pair<BlockState, BlockState>> getIgnoredMismatches()
@@ -1003,6 +1090,18 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void addCountFor(MismatchType mismatchType, ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> map, List<BlockMismatch> list)
     {
+        // Every container holds something different, so a row per state pair would say
+        // nothing about which one is wrong or how; unless asked to, list them one by one
+        if (mismatchType == MismatchType.WRONG_NBT && Configs.Generic.VERIFIER_GROUP_WRONG_CONTENTS.getBooleanValue() == false)
+        {
+            for (Map.Entry<Pair<BlockState, BlockState>, BlockPos> entry : map.entries())
+            {
+                list.add(new BlockMismatch(mismatchType, entry.getKey().getLeft(), entry.getKey().getRight(), 1, entry.getValue()));
+            }
+
+            return;
+        }
+
         for (Pair<BlockState, BlockState> pair : map.keySet())
         {
             list.add(new BlockMismatch(mismatchType, pair.getLeft(), pair.getRight(), map.get(pair).size()));
@@ -1547,6 +1646,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
             for (BlockMismatch mismatch : mismatches)
             {
+                // A single container's row stands for that one position only
+                if (mismatch.pos() != null)
+                {
+                    listOut.add(mismatch.pos());
+                    continue;
+                }
+
                 MUTABLE_PAIR.setLeft(mismatch.stateExpected);
                 MUTABLE_PAIR.setRight(mismatch.stateFound);
                 listOut.addAll(sourceMap.get(MUTABLE_PAIR));
@@ -1577,6 +1683,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.getMismatchRenderPositionFor(MismatchType.WRONG_STATE, tempList);
         this.getMismatchRenderPositionFor(MismatchType.EXTRA, tempList);
         this.getMismatchRenderPositionFor(MismatchType.MISSING, tempList);
+        this.getMismatchRenderPositionFor(MismatchType.WRONG_NBT, tempList);
 
         tempList.sort(new RenderPosComparator(centerPos, true));
 
@@ -1688,9 +1795,16 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
     */
 
-    public record BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count)
+    /** @param pos set when this row stands for a single position rather than every position of the pair */
+    public record BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count, @Nullable BlockPos pos)
         implements Comparable<BlockMismatch>
     {
+        /** The rows that do not stand for a single position. */
+        public BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count)
+        {
+            this(mismatchType, stateExpected, stateFound, count, null);
+        }
+
         @Override
         public int compareTo(BlockMismatch other)
         {
@@ -1705,6 +1819,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             result = prime * result + ((this.mismatchType == null) ? 0 : this.mismatchType.hashCode());
             result = prime * result + ((this.stateExpected == null) ? 0 : this.stateExpected.hashCode());
             result = prime * result + ((this.stateFound == null) ? 0 : this.stateFound.hashCode());
+            result = prime * result + ((this.pos == null) ? 0 : this.pos.hashCode());
             return result;
         }
 
@@ -1725,12 +1840,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             else if (this.stateExpected != other.stateExpected) { return false; }
             if (this.stateFound == null)
             {
-	            return other.stateFound == null;
+	            if (other.stateFound != null) { return false; }
             }
-            else
-            {
-                return this.stateFound == other.stateFound;
-            }
+            else if (this.stateFound != other.stateFound) { return false; }
+
+            return Objects.equals(this.pos, other.pos);
         }
     }
 
