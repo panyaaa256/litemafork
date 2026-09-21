@@ -128,7 +128,12 @@ public class GuiSchematicVerifier   extends GuiListBase<BlockMismatchEntry, Widg
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_WRONG_STATES) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_EXTRA) + 4;
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING) + 4;
-        x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING_ENTITIES) + 4;
+
+        if (this.verifier.isCheckingEntities())
+        {
+            x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_MISSING_ENTITIES) + 4;
+        }
+
         x += this.createButton(x, y, -1, ButtonListener.Type.SET_RESULT_MODE_CORRECT) + 4;
 
         if (this.verifier.getWrongNbtCount() > 0)

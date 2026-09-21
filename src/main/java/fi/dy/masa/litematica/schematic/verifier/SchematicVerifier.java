@@ -14,6 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.util.Mth;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -58,6 +59,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private static final MutablePair<BlockState, BlockState> MUTABLE_PAIR = new MutablePair<>();
     private static final BlockPos.MutableBlockPos MUTABLE_POS = new BlockPos.MutableBlockPos();
     private static final List<SchematicVerifier> ACTIVE_VERIFIERS = new ArrayList<>();
+    /** Blocks short of the entity tracking range that still count as seeable; see canClientSeeEntityAt(). */
+    private static final double ENTITY_TRACKING_MARGIN = 8.0;
 
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> missingBlocksPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> extraBlocksPositions = ArrayListMultimap.create();
@@ -67,6 +70,14 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> wrongNbtPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> diffBlocksPositions = ArrayListMultimap.create();
     private final ArrayListMultimap<EntityType<?>, MissingEntityEntry> missingEntitiesPositions = ArrayListMultimap.create();
+    /**
+     * Schematic entities with no match yet whose position the client cannot currently see
+     * entities at. The server only sends a client the entities within that entity type's
+     * tracking range, which is much shorter than the render distance, so everything further
+     * away would otherwise be reported as missing. These wait here instead until the player
+     * comes close enough for an absence to mean something.
+     */
+    private final ArrayListMultimap<EntityType<?>, MissingEntityEntry> unseenEntitiesPositions = ArrayListMultimap.create();
     private final Object2ObjectOpenHashMap<EntityType<?>, ItemStack> entityMismatchStacks = new Object2ObjectOpenHashMap<>();
     private final Set<UUID> usedClientEntityUuids = new HashSet<>();
     private final Map<UUID, MissingEntityEntry> matchedClientEntities = new HashMap<>();
@@ -111,6 +122,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
      * status line keeps its usual meaning.
      */
     private boolean serverMode;
+    /** Captured when a verification starts, like the verifier lists. */
+    private boolean checkEntities;
     private int serverChunksDone;
     private int serverChunksTotal;
     private int serverUnreadableChunks;
@@ -285,6 +298,18 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         return this.missingEntitiesPositions.size();
     }
 
+    /** Schematic entities that could not be checked yet, because the client cannot see that far. */
+    public int getUnseenEntities()
+    {
+        return this.unseenEntitiesPositions.size();
+    }
+
+    /** Whether the current verification checks entities at all. */
+    public boolean isCheckingEntities()
+    {
+        return this.checkEntities;
+    }
+
     public int getCorrectStatesCount()
     {
         return this.correctStatesCount;
@@ -432,6 +457,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         this.verifyChunks(profiler);
         this.checkChangedPositions(profiler);
+        this.checkUnseenEntities(profiler);
         return false;
     }
 
@@ -462,6 +488,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.verifierListRegistry = new VerifierListRegistry();
 
         this.setCompletionListener(completionListener);
+        this.checkEntities = Configs.Generic.VERIFIER_CHECK_ENTITIES.getBooleanValue();
         this.requiredChunks.addAll(schematicPlacement.getTouchedChunks(SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED));
         this.totalRequiredChunks = this.requiredChunks.size();
         this.verificationStarted = true;
@@ -703,6 +730,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.verificationActive = false;
         this.verificationStarted = false;
         this.serverMode = false;
+        this.checkEntities = false;
         this.serverChunksDone = 0;
         this.serverChunksTotal = 0;
         this.serverUnreadableChunks = 0;
@@ -727,6 +755,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.mismatchBlockPositionsForRender.clear();
         this.mismatchPositionsForRender.clear();
         this.missingEntitiesPositions.clear();
+        this.unseenEntitiesPositions.clear();
         this.entityMismatchStacks.clear();
         this.usedClientEntityUuids.clear();
         this.matchedClientEntities.clear();
@@ -1075,6 +1104,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void verifyEntitiesInBox(ChunkPos chunkPos, int startX, int startY, int startZ, int endX, int endY, int endZ)
     {
+        if (this.checkEntities == false)
+        {
+            return;
+        }
+
         List<Entity> schematicEntities = this.worldSchematic.getEntitiesByChunk(chunkPos.x(), chunkPos.z(), SchematicVerifier::isVerifiableEntity);
         final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
 
@@ -1098,11 +1132,97 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 this.usedClientEntityUuids.add(match.getUUID());
                 this.matchedClientEntities.put(match.getUUID(), entry);
             }
-            else
+            else if (this.canClientSeeEntityAt(entry.entityType, entry.pos))
             {
                 this.missingEntitiesPositions.put(schematicEntity.getType(), entry);
             }
+            else
+            {
+                this.unseenEntitiesPositions.put(schematicEntity.getType(), entry);
+            }
         }
+    }
+
+    /**
+     * Whether the client would have been sent an entity of this type at this position, if
+     * there was one. Only then does not finding one mean that it is missing.
+     * <p>
+     * This mirrors the server's own rule for which entities a player is sent: the chunk has
+     * to be loaded, and the entity has to be within the smaller of the type's tracking range
+     * and the view distance, measured horizontally from the player. Item frames, paintings
+     * and armor stands have a tracking range of 10 chunks and minecarts 8, so with a render
+     * distance past that, the blocks of a far chunk are visible but its entities are not.
+     * <p>
+     * A server can shrink the tracking ranges (entity-broadcast-range-percentage), which a
+     * client has no way to know about; this assumes the vanilla ranges. The margin keeps an
+     * entity that sits right on the edge from being judged either way while the player moves.
+     */
+    private boolean canClientSeeEntityAt(EntityType<?> type, Vec3 pos)
+    {
+        if (this.mc.player == null ||
+            WorldUtils.isClientChunkLoaded(this.worldClient, Mth.floor(pos.x) >> 4, Mth.floor(pos.z) >> 4) == false)
+        {
+            return false;
+        }
+
+        final int rangeChunks = Math.min(type.clientTrackingRange(), this.mc.options.getEffectiveRenderDistance());
+        final double range = rangeChunks * 16 - ENTITY_TRACKING_MARGIN;
+        final double dx = this.mc.player.getX() - pos.x;
+        final double dz = this.mc.player.getZ() - pos.z;
+
+        return range > 0 && dx * dx + dz * dz <= range * range;
+    }
+
+    /**
+     * Checks the unseen entities that the player has since come close enough to see: each
+     * one is now either there, or missing.
+     */
+    private void checkUnseenEntities(ProfilerFiller profiler)
+    {
+        if (this.checkEntities == false || this.unseenEntitiesPositions.isEmpty() ||
+            (this.verificationActive == false && this.finished == false))
+        {
+            return;
+        }
+
+        profiler.push("verify_unseen_entities");
+
+        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+        Iterator<Map.Entry<EntityType<?>, MissingEntityEntry>> iter = this.unseenEntitiesPositions.entries().iterator();
+        boolean changed = false;
+
+        while (iter.hasNext())
+        {
+            MissingEntityEntry entry = iter.next().getValue();
+
+            if (this.canClientSeeEntityAt(entry.entityType, entry.pos) == false)
+            {
+                continue;
+            }
+
+            iter.remove();
+            changed = true;
+
+            Entity match = this.findMatchingClientEntity(entry.entityType, entry.pos, tolerance);
+
+            if (match != null)
+            {
+                this.usedClientEntityUuids.add(match.getUUID());
+                this.matchedClientEntities.put(match.getUUID(), entry);
+            }
+            else
+            {
+                // If its spawn packet is merely late, onClientEntityAdded() takes it back out
+                this.missingEntitiesPositions.put(entry.entityType, entry);
+            }
+        }
+
+        if (changed)
+        {
+            this.updateMismatchOverlays();
+        }
+
+        profiler.pop();
     }
 
     /**
@@ -1152,31 +1272,37 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void onClientEntityAdded(Entity entity)
     {
-        if (this.finished == false || isVerifiableEntity(entity) == false ||
-            this.usedClientEntityUuids.contains(entity.getUUID()))
+        // Also while the verification is still running: an entity's spawn packet can arrive
+        // after its chunk was already checked, and it must not stay reported as missing
+        if (this.checkEntities == false || (this.verificationActive == false && this.finished == false) ||
+            isVerifiableEntity(entity) == false || this.usedClientEntityUuids.contains(entity.getUUID()))
         {
             return;
         }
 
         final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
-        List<MissingEntityEntry> entries = this.missingEntitiesPositions.get(entity.getType());
+        ArrayListMultimap<EntityType<?>, MissingEntityEntry> closestMap = null;
         MissingEntityEntry closest = null;
         double closestDistSq = Double.MAX_VALUE;
 
-        for (MissingEntityEntry entry : entries)
+        for (ArrayListMultimap<EntityType<?>, MissingEntityEntry> map : List.of(this.missingEntitiesPositions, this.unseenEntitiesPositions))
         {
-            double distSq = entry.pos.distanceToSqr(entity.position());
-
-            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
+            for (MissingEntityEntry entry : map.get(entity.getType()))
             {
-                closestDistSq = distSq;
-                closest = entry;
+                double distSq = entry.pos.distanceToSqr(entity.position());
+
+                if (distSq <= tolerance * tolerance && distSq < closestDistSq)
+                {
+                    closestDistSq = distSq;
+                    closest = entry;
+                    closestMap = map;
+                }
             }
         }
 
         if (closest != null)
         {
-            this.missingEntitiesPositions.remove(entity.getType(), closest);
+            closestMap.remove(entity.getType(), closest);
             this.usedClientEntityUuids.add(entity.getUUID());
             this.matchedClientEntities.put(entity.getUUID(), closest);
             this.updateMismatchOverlays();
@@ -1185,7 +1311,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void onClientEntityRemoved(Entity entity)
     {
-        if (this.finished == false)
+        if (this.checkEntities == false || (this.verificationActive == false && this.finished == false))
         {
             return;
         }
@@ -1195,7 +1321,19 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         if (entry != null)
         {
             this.usedClientEntityUuids.remove(entity.getUUID());
-            this.missingEntitiesPositions.put(entry.entityType, entry);
+
+            // The client is told to forget an entity both when it is broken and when the
+            // player merely walks out of its tracking range, and cannot tell which. Only in
+            // the first case is it still somewhere the client could see it
+            if (this.canClientSeeEntityAt(entry.entityType, entry.pos))
+            {
+                this.missingEntitiesPositions.put(entry.entityType, entry);
+            }
+            else
+            {
+                this.unseenEntitiesPositions.put(entry.entityType, entry);
+            }
+
             this.updateMismatchOverlays();
         }
     }
