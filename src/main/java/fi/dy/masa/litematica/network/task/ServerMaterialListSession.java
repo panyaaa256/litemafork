@@ -168,7 +168,7 @@ public class ServerMaterialListSession extends ServerTaskSessionBase
 		ServerTaskResultReader.readBlockCounts(palette, nbt.getIntArray("BlockCountsTotal"), this.countsTotal);
 		ServerTaskResultReader.readBlockCounts(palette, nbt.getIntArray("BlockCountsMissing"), this.countsMissing);
 		ServerTaskResultReader.readBlockCounts(palette, nbt.getIntArray("BlockCountsMismatch"), this.countsMismatch);
-		ServerTaskResultReader.readItemCounts(nbt.getList("EntityIds"), nbt.getIntArray("EntityCounts"), this.entitiesTotal);
+		ServerTaskResultReader.readEntityCounts(nbt.getList("EntityIds"), nbt.getIntArray("EntityCounts"), this.entitiesTotal);
 		ServerTaskResultReader.readItemCounts(nbt.getList("ItemIds"), nbt.getIntArray("ItemCounts"), this.containersTotal);
 
 		final int batch = nbt.getInt("Batch");

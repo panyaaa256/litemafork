@@ -1,6 +1,8 @@
 package fi.dy.masa.litematica.util;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -15,6 +17,7 @@ import net.minecraft.client.entity.ClientMannequin;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
@@ -22,6 +25,7 @@ import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.*;
+import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.decoration.LeashFenceKnotEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -50,6 +54,8 @@ public class EntityUtils
 {
     public static final Predicate<Entity> NOT_PLAYER = entity -> !(entity instanceof Player);
     private static final ThreadLocalRandom RAND = ThreadLocalRandom.current();
+    /** Filled by {@link #getEntityItem(EntityType)}, which has to create an entity to answer. */
+    private static final Map<EntityType<?>, ItemStack> ENTITY_TYPE_ITEMS = new HashMap<>();
 
     public static boolean isCreativeMode(Player player)
     {
@@ -282,6 +288,117 @@ public class EntityUtils
         EntityType<?> entitytype = entity.getType();
         Identifier id = EntityType.getKey(entitytype);
         return entitytype.canSerialize() && id != null ? id.toString() : null;
+    }
+
+    /**
+     * The item that stands for an entity in a material list: the one a creative mode pick
+     * on it gives - a spawn egg for a mob, and the item itself for an armor stand, painting,
+     * boat, minecart, leash knot and so on. It comes from the same
+     * {@link Entity#getPickResult()} vanilla answers that pick with, so each entity follows
+     * its own rules rather than a guess from its id.
+     * <p>
+     * An item frame is the exception. Its pick result is whatever it is holding, but a list
+     * of what to bring needs the frame itself.
+     *
+     * @return the empty stack for an entity that has no item at all, such as a marker or a
+     *         display entity
+     */
+    public static ItemStack getEntityItem(Entity entity)
+    {
+        if (entity instanceof ItemFrame)
+        {
+            // A fresh frame holds nothing, so the per-type lookup yields the frame itself
+            return getEntityItem(entity.getType());
+        }
+
+        return getPickedItem(entity);
+    }
+
+    private static ItemStack getPickedItem(Entity entity)
+    {
+        ItemStack stack = null;
+
+        try
+        {
+            stack = entity.getPickResult();
+        }
+        catch (Exception ignored) { }
+
+        if (stack != null && stack.isEmpty() == false)
+        {
+            // Only the item matters for counting; drop any data the pick attached to it
+            return new ItemStack(stack.getItem());
+        }
+
+        // Nothing to pick, e.g. primed TNT: fall back to the item sharing the entity's id,
+        // which is how these used to be counted
+        return getItemWithSameId(entity.getType());
+    }
+
+    /**
+     * {@link #getEntityItem(Entity)} for when there is only a type to go on - an entity
+     * stored in a schematic file, or one the server counted. A throwaway entity of that type
+     * is created to ask, so that the answer is exactly the one a real entity would give; the
+     * result is cached per type.
+     */
+    public static ItemStack getEntityItem(EntityType<?> type)
+    {
+        ItemStack cached = ENTITY_TYPE_ITEMS.get(type);
+
+        if (cached != null)
+        {
+            return cached;
+        }
+
+        Level world = Minecraft.getInstance().level;
+
+        if (world == null)
+        {
+            // Not cached: with a world to create the entity in, the answer may be better
+            return getItemWithSameId(type);
+        }
+
+        ItemStack stack = ItemStack.EMPTY;
+
+        try
+        {
+            Entity entity = type.create(world, EntitySpawnReason.LOAD);
+
+            if (entity != null)
+            {
+                // Not getEntityItem(): an item frame would send it straight back here
+                stack = getPickedItem(entity);
+            }
+        }
+        catch (Exception e)
+        {
+            Litematica.LOGGER.warn("EntityUtils#getEntityItem(): failed to create an entity of type '{}'; {}", EntityType.getKey(type), e.getLocalizedMessage());
+        }
+
+        if (stack.isEmpty())
+        {
+            stack = getItemWithSameId(type);
+        }
+
+        ENTITY_TYPE_ITEMS.put(type, stack);
+
+        return stack;
+    }
+
+    /** The entity type an id names, as {@link #getEntityItem(EntityType)} expects it. */
+    @Nullable
+    public static EntityType<?> getEntityTypeById(String id)
+    {
+        Identifier identifier = Identifier.tryParse(id);
+
+        return identifier != null ? BuiltInRegistries.ENTITY_TYPE.getOptional(identifier).orElse(null) : null;
+    }
+
+    private static ItemStack getItemWithSameId(EntityType<?> type)
+    {
+        Identifier id = EntityType.getKey(type);
+
+        return id != null ? new ItemStack(BuiltInRegistries.ITEM.getValue(id)) : ItemStack.EMPTY;
     }
 
     @Deprecated(forRemoval = true)

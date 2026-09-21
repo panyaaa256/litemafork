@@ -1,11 +1,12 @@
 package fi.dy.masa.litematica.network.task;
 
+import java.util.function.Function;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.item.Item;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -14,6 +15,7 @@ import fi.dy.masa.malilib.util.data.ItemType;
 import fi.dy.masa.malilib.util.data.tag.BaseData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.malilib.util.data.tag.StringData;
+import fi.dy.masa.litematica.util.EntityUtils;
 
 /**
  * Decodes the tallies the server side analysis and material list send back.
@@ -40,15 +42,36 @@ public class ServerTaskResultReader
 		}
 	}
 
-	/**
-	 * Adds an identifier list and its parallel count array to an item tally.
-	 * <p>
-	 * Entity types resolve through the item registry too: the local material list and
-	 * analyzer map an entity type onto the item of the same identifier, which for an entity
-	 * with no such item (a cow, say) is the empty item. Doing the same here makes a server
-	 * result and a local one price up the same things the same way.
-	 */
+	/** Adds an item identifier list and its parallel count array to an item tally. */
 	public static void readItemCounts(@Nullable ListData ids, int[] counts, Object2IntOpenHashMap<ItemType> out)
+	{
+		readCounts(ids, counts, out, id ->
+		{
+			Identifier identifier = Identifier.tryParse(id);
+
+			return identifier != null ? new ItemStack(BuiltInRegistries.ITEM.getValue(identifier)) : ItemStack.EMPTY;
+		});
+	}
+
+	/**
+	 * Adds an entity type identifier list and its parallel count array to an item tally.
+	 * <p>
+	 * Each type becomes the item the local material list and analyzer count it as - the
+	 * creative mode pick result, see {@link EntityUtils#getEntityItem(EntityType)} - so a
+	 * server result and a local one price up the same things the same way.
+	 */
+	public static void readEntityCounts(@Nullable ListData ids, int[] counts, Object2IntOpenHashMap<ItemType> out)
+	{
+		readCounts(ids, counts, out, id ->
+		{
+			EntityType<?> type = EntityUtils.getEntityTypeById(id);
+
+			return type != null ? EntityUtils.getEntityItem(type) : ItemStack.EMPTY;
+		});
+	}
+
+	private static void readCounts(@Nullable ListData ids, int[] counts, Object2IntOpenHashMap<ItemType> out,
+	                               Function<String, ItemStack> toItem)
 	{
 		if (ids == null)
 		{
@@ -66,16 +89,13 @@ public class ServerTaskResultReader
 				continue;
 			}
 
-			Identifier id = Identifier.tryParse(str.getString());
+			ItemStack stack = toItem.apply(str.getString());
 
-			if (id == null)
+			// An id this client does not know, or an entity with no item to stand for it
+			if (stack.isEmpty() == false)
 			{
-				continue;
+				out.addTo(new ItemType(stack, false), counts[i]);
 			}
-
-			Item item = BuiltInRegistries.ITEM.getValue(id);
-
-			out.addTo(new ItemType(new ItemStack(item), false), counts[i]);
 		}
 	}
 }

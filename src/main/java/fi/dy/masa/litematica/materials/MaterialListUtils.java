@@ -15,6 +15,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.Container;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
@@ -32,6 +33,7 @@ import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic.EntityInfo;
 import fi.dy.masa.litematica.schematic.container.LitematicaBlockStateContainer;
+import fi.dy.masa.litematica.util.EntityUtils;
 import fi.dy.masa.litematica.util.InclusionType;
 
 /**
@@ -187,12 +189,10 @@ public class MaterialListUtils
            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
            if (entitiesList != null) {
                for (EntityInfo entityInfo : entitiesList) {
-                   String id = entityInfo.nbt().getString("id");
-                   if (!id.isEmpty()) {
-                       Identifier identifier = Identifier.tryParse(id);
-                       Item item = BuiltInRegistries.ITEM.getValue(identifier);
-                       ItemType itemType = new ItemType(new ItemStack(item), false);
-                       entitiesTotal.addTo(itemType, 1);
+                   EntityType<?> type = EntityUtils.getEntityTypeById(entityInfo.nbt().getString("id"));
+                   ItemStack stack = type != null ? EntityUtils.getEntityItem(type) : ItemStack.EMPTY;
+                   if (!stack.isEmpty()) {
+                       entitiesTotal.addTo(new ItemType(stack, false), 1);
                    }
                }
            }
