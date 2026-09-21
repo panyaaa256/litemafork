@@ -176,11 +176,27 @@ public class WidgetListSchematicVerificationResults extends WidgetListBase<Block
 
     private void addMissingEntityEntries()
     {
+        SchematicVerifier verifier = this.guiSchematicVerifier.getPlacement().getSchematicVerifier();
+
+        // Entity checking was off for this run, so there is nothing to list, not even a header
+        if (verifier.isCheckingEntities() == false)
+        {
+            return;
+        }
+
         MismatchType type = MismatchType.MISSING_ENTITY;
         String title = type.getFormattingCode() + type.getDisplayname() + TXT_RST;
+        final int unseen = verifier.getUnseenEntities();
+
+        // Entities too far away to check yet are not missing, but they are not correct
+        // either; say how many are still waiting rather than leave them out silently
+        if (unseen > 0)
+        {
+            title += " " + StringUtils.translate("litematica.gui.label.schematic_verifier.unseen_entities", unseen);
+        }
+
         this.listContents.add(new BlockMismatchEntry(type, title));
 
-        SchematicVerifier verifier = this.guiSchematicVerifier.getPlacement().getSchematicVerifier();
         List<EntityMismatch> list = verifier.getEntityMismatchOverview();
 
         boolean reverse = verifier.getSortInReverse();
