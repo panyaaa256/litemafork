@@ -5,12 +5,9 @@ import java.util.List;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -98,11 +95,12 @@ public class TaskCountBlocksPlacement extends TaskCountBlocksBase
 
             if (this.entitiesInclusionType != InclusionType.NONE)
             {
-                Identifier identifier = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
-                Item item = BuiltInRegistries.ITEM.getValue(identifier);
-                ItemType itemType = new ItemType(new ItemStack(item), false);
+                ItemStack stack = EntityUtils.getEntityItem(entity);
 
-                this.entitiesTotal.addTo(itemType, 1);
+                if (stack.isEmpty() == false)
+                {
+                    this.entitiesTotal.addTo(new ItemType(stack, false), 1);
+                }
             }
 
             if (this.containersInclusionType != InclusionType.NONE && entity instanceof Container container)

@@ -134,9 +134,9 @@ public class ServerAnalyzeSession extends ServerTaskSessionBase
 		}
 
 		ServerTaskResultReader.readBlockCounts(nbt.getIntArray("BlockPalette"), nbt.getIntArray("BlockCounts"), this.blockCounts);
-		// Entity types resolve through the item registry exactly as they do locally, so a
+		// Entity types resolve to the same items the local analyzer counts them as, so a
 		// server result and a local result render identically
-		ServerTaskResultReader.readItemCounts(nbt.getList("EntityIds"), nbt.getIntArray("EntityCounts"), this.entityCounts);
+		ServerTaskResultReader.readEntityCounts(nbt.getList("EntityIds"), nbt.getIntArray("EntityCounts"), this.entityCounts);
 		ServerTaskResultReader.readItemCounts(nbt.getList("ItemIds"), nbt.getIntArray("ItemCounts"), this.containerCounts);
 
 		final int batch = nbt.getInt("Batch");

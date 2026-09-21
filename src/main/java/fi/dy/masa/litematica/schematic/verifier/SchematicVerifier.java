@@ -24,7 +24,6 @@ import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -1145,21 +1144,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
         if (this.entityMismatchStacks.containsKey(type) == false)
         {
-            ItemStack stack = ItemStack.EMPTY;
-
-            try
-            {
-                stack = schematicEntity.getPickResult();
-            }
-            catch (Exception ignored) { }
-
-            if (stack == null || stack.isEmpty())
-            {
-                SpawnEggItem egg = SpawnEggItem.byId(type);
-                stack = egg != null ? new ItemStack(egg) : ItemStack.EMPTY;
-            }
-
-            this.entityMismatchStacks.put(type, stack);
+            // The same item the material list counts this entity as; for an item frame that
+            // is the frame, where its pick result would be whatever it happens to hold
+            this.entityMismatchStacks.put(type, EntityUtils.getEntityItem(schematicEntity));
         }
     }
 
