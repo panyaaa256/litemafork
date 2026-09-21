@@ -7,8 +7,8 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.block.state.BlockState;
 
-import fi.dy.masa.malilib.util.ItemType;
-import fi.dy.masa.malilib.util.LayerRange;
+import fi.dy.masa.malilib.util.data.ItemType;
+import fi.dy.masa.malilib.util.position.LayerRange;
 import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.data.DataManager;
