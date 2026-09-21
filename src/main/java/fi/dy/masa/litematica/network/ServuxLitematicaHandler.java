@@ -26,7 +26,7 @@ import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.util.DataByteBufUtils;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.data.EntityDataManager;
-import fi.dy.masa.litematica.schematic.verifier.ServerVerifySession;
+import fi.dy.masa.litematica.network.task.ServerTaskRouter;
 
 @Environment(EnvType.CLIENT)
 public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> implements IPluginClientPlayHandler<T>
@@ -100,16 +100,16 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
                 {
                     if (this.servuxRegistered)
                     {
-                        ServerVerifySession.getInstance().handleError(packet.getCompound());
+                        ServerTaskRouter.routeTaskResponse(packet.getCompound());
                     }
                 }
                 case PACKET_S2C_TASK_STATUS_SYNC ->
                 {
                     if (this.servuxRegistered)
                     {
-                        // The verifier only claims the pings from its own session; everything
+                        // The server side tasks only claim the pings that name them; everything
                         // else belongs to the shared info HUD sync (fill, delete and friends)
-                        if (ServerVerifySession.getInstance().handleStatus(packet.getCompound()) == false)
+                        if (ServerTaskRouter.routeStatus(packet.getCompound()) == false)
                         {
                             EntityDataManager.getInstance().receiveServuxTaskStatusSync(packet.getCompound());
                         }
@@ -198,9 +198,8 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
 //            default -> EntityDataManager.getInstance().handleBulkEntityData(-1, data);
 //        }
 
-        if (task.equals("LitematicaVerifyResult"))
+        if (ServerTaskRouter.routeBulkResult(task, data))
         {
-            ServerVerifySession.getInstance().handleResult(data);
             return;
         }
 
@@ -254,35 +253,62 @@ public abstract class ServuxLitematicaHandler<T extends CustomPacketPayload> imp
             // Send Response Data via Packet Splitter
             if (packet.getType().equals(ServuxLitematicaPacket.Type.PACKET_C2S_NBT_RESPONSE_START))
             {
-                final int maxSize = PacketSplitter.DEFAULT_MAX_RECEIVE_SIZE_S2C - 4096;
-
-                try
-                {
-//                    FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
-//                    buffer.writeNbt(packet.getCompound());
-                    ByteBuf buffer = DataByteBufUtils.toByteBuf(packet.getCompound(), "");
-
-                    if (buffer.readableBytes() > maxSize)
-                    {
-//                            Litematica.LOGGER.warn("[Servux Paste]: Slicing Oversided Schematic for Servux Paste ...");
-//                            this.sliceForServux(schematicPlacement.getSchematic(), nbt, maxSize, printMessage);
-                        InfoUtils.showGuiOrInGameMessage(Message.MessageType.ERROR, "litematica.message.error.placement_paste_too_large_for_servux");
-                    }
-                    else
-                    {
-                        PacketSplitter.send(this, new FriendlyByteBuf(buffer), Minecraft.getInstance().getConnection());
-                        // PacketSplitter releases the ByteBuf at the end
-                    }
-                }
-                catch (Exception e)
-                {
-                    Litematica.LOGGER.error("ServuxLitematicaHandler#encodeServerData(): Exception encoding packet for PacketSplitter; {}", e.getLocalizedMessage());
-                }
+                this.sendWithSplitter(packet.getCompound());
             }
             else if (!ServuxLitematicaHandler.INSTANCE.sendPlayPayload(new ServuxLitematicaPacket.Payload(packet)))
             {
                 this.tickFailures();
             }
+        }
+    }
+
+    /**
+     * Sends a request that carries a schematic (or may be large for some other reason)
+     * through the packet splitter, the way {@link #encodeClientData} sends a
+     * {@code PACKET_C2S_NBT_RESPONSE_START}, but says whether it actually went out.
+     * <p>
+     * A caller that then waits for a reply needs to know: a request that was too large was
+     * never sent, so no reply will ever come.
+     *
+     * @return false if the request was not sent
+     */
+    public boolean encodeClientRequest(CompoundData nbt)
+    {
+        if (!EntityDataManager.getInstance().isEnabled() || !this.checkFailures())
+        {
+            return false;
+        }
+
+        return this.sendWithSplitter(nbt);
+    }
+
+    private boolean sendWithSplitter(CompoundData nbt)
+    {
+        final int maxSize = PacketSplitter.DEFAULT_MAX_RECEIVE_SIZE_S2C - 4096;
+
+        try
+        {
+//            FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+//            buffer.writeNbt(packet.getCompound());
+            ByteBuf buffer = DataByteBufUtils.toByteBuf(nbt, "");
+
+            if (buffer.readableBytes() > maxSize)
+            {
+//                Litematica.LOGGER.warn("[Servux Paste]: Slicing Oversided Schematic for Servux Paste ...");
+//                this.sliceForServux(schematicPlacement.getSchematic(), nbt, maxSize, printMessage);
+                buffer.release();
+                InfoUtils.showGuiOrInGameMessage(Message.MessageType.ERROR, "litematica.message.error.placement_paste_too_large_for_servux");
+                return false;
+            }
+
+            PacketSplitter.send(this, new FriendlyByteBuf(buffer), Minecraft.getInstance().getConnection());
+            // PacketSplitter releases the ByteBuf at the end
+            return true;
+        }
+        catch (Exception e)
+        {
+            Litematica.LOGGER.error("ServuxLitematicaHandler#encodeServerData(): Exception encoding packet for PacketSplitter; {}", e.getLocalizedMessage());
+            return false;
         }
     }
 

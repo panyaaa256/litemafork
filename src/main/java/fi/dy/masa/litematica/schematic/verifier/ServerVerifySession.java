@@ -51,7 +51,8 @@ public class ServerVerifySession
 	/**
 	 * Uploads the placement and asks the server to verify it.
 	 *
-	 * @return false if the server has not advertised the verify capability
+	 * @return false if the server has not advertised the verify capability, or the request
+	 *         could not be sent
 	 */
 	public boolean start(SchematicVerifier verifier, SchematicPlacement placement)
 	{
@@ -72,7 +73,13 @@ public class ServerVerifySession
 
 		Litematica.debugLog("ServerVerifySession: requesting verification of '{}' (session {})", placement.getName(), this.sessionId);
 
-		ServuxLitematicaHandler.getInstance().encodeClientData(ServuxLitematicaPacket.ResponseC2SStart(nbt));
+		// A request too large for the packet splitter is never sent, so no reply would ever
+		// come; report that now rather than leave the verifier waiting on the server forever
+		if (!ServuxLitematicaHandler.getInstance().encodeClientRequest(nbt))
+		{
+			this.clear();
+			return false;
+		}
 
 		return true;
 	}

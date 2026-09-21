@@ -62,6 +62,7 @@ import fi.dy.masa.litematica.Reference;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.network.ServuxLitematicaHandler;
 import fi.dy.masa.litematica.network.ServuxLitematicaPacket;
+import fi.dy.masa.litematica.network.task.ServerTaskSessionBase;
 import fi.dy.masa.litematica.scheduler.info_hud.InfoHudSync;
 import fi.dy.masa.litematica.util.EntityUtils;
 import fi.dy.masa.litematica.util.PositionUtils;
@@ -260,6 +261,8 @@ public class EntityDataManager implements IClientTickHandler, IDataSyncer
             this.checkOpStatus = false;
             this.hasOpStatus = false;
             this.lastOpCheck = 0L;
+            // The server that was running them is gone, and would not know their ids anyway
+            ServerTaskSessionBase.clearAll();
         }
         else
         {

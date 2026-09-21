@@ -56,6 +56,7 @@ public class Configs implements IConfigHandler
         public static final ConfigBoolean       CUSTOM_SCHEMATIC_BASE_DIRECTORY_ENABLED = new ConfigBoolean("customSchematicBaseDirectoryEnabled", false).apply(GENERIC_KEY);
         public static final ConfigString        CUSTOM_SCHEMATIC_BASE_DIRECTORY         = new ConfigString( "customSchematicBaseDirectory", DataManager.getDefaultBaseSchematicDirectory().toAbsolutePath().toString()).apply(GENERIC_KEY);
 
+        public static final ConfigBoolean       ANALYZE_USING_SERVUX        = new ConfigBoolean("analyzeUsingServux", true).apply(GENERIC_KEY);
         public static final ConfigBoolean       AREAS_PER_WORLD             = new ConfigBoolean("areaSelectionsPerWorld", true).apply(GENERIC_KEY);
 //        public static final ConfigBoolean       BETTER_RENDER_ORDER         = new ConfigBoolean("betterRenderOrder", true).apply(GENERIC_KEY);
         public static final ConfigBoolean       CHANGE_SELECTED_CORNER      = new ConfigBoolean("changeSelectedCornerOnMove", true).apply(GENERIC_KEY);
@@ -109,6 +110,7 @@ public class Configs implements IConfigHandler
         public static final ConfigBoolean       MATERIAL_LIST_COUNT_ENDER_CACHE       = new ConfigBoolean("materialListCountEnderCache", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       MATERIAL_LIST_IGNORE_STATE  = new ConfigBoolean("materialListIgnoreState", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       MATERIAL_LIST_RECIPE_DETAILS= new ConfigBoolean("materialListRecipeDetails", true).apply(GENERIC_KEY);
+        public static final ConfigBoolean       MATERIAL_LIST_USING_SERVUX  = new ConfigBoolean("materialListUsingServux", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_ALWAYS_USE_FILL       = new ConfigBoolean("pasteAlwaysUseFill", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_BE_ENTIRELY    = new ConfigBoolean("pasteIgnoreBlockEntitiesEntirely", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_BE_IN_FILL     = new ConfigBoolean("pasteIgnoreBlockEntitiesFromFill", true).apply(GENERIC_KEY);
@@ -150,6 +152,7 @@ public class Configs implements IConfigHandler
                 PLACEMENT_MANAGER_THREAD_COUNT,
 //                PLACEMENT_MANAGER_PROFILE,
 
+                ANALYZE_USING_SERVUX,
                 AREAS_PER_WORLD,
 //				BETTER_RENDER_ORDER,
                 CHANGE_SELECTED_CORNER,
@@ -198,6 +201,7 @@ public class Configs implements IConfigHandler
                 MATERIAL_LIST_COUNT_ENDER_CACHE,
                 MATERIAL_LIST_IGNORE_STATE,
                 MATERIAL_LIST_RECIPE_DETAILS,
+                MATERIAL_LIST_USING_SERVUX,
                 PASTE_ALWAYS_USE_FILL,
                 PASTE_IGNORE_BE_ENTIRELY,
                 PASTE_IGNORE_BE_IN_FILL,
