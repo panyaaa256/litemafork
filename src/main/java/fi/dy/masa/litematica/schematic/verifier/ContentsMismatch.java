@@ -1,7 +1,10 @@
 package fi.dy.masa.litematica.schematic.verifier;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -54,6 +57,7 @@ public class ContentsMismatch
     private boolean differencesComputed;
     private boolean slotExact;
     private boolean strict;
+    @Nullable private String expectedContentsKey;
 
     public ContentsMismatch(BlockPos pos, CompoundData expectedData, CompoundData foundData)
     {
@@ -84,6 +88,57 @@ public class ContentsMismatch
     public CompoundData getFoundData()
     {
         return this.foundData;
+    }
+
+    /**
+     * A key standing for the schematic side's contents, equal for two containers holding
+     * exactly the same thing: the same item with the same count and the same components in
+     * the same slot, every slot over. A grouped Wrong Contents row only ever puts together
+     * containers that share it, since a row of containers holding different things would
+     * say nothing about what any of them should hold.
+     */
+    public String getExpectedContentsKey()
+    {
+        if (this.expectedContentsKey == null)
+        {
+            this.expectedContentsKey = contentsKeyOf(this.expectedTag);
+        }
+
+        return this.expectedContentsKey;
+    }
+
+    /** Every stack of one container as "slot: id xN components", in a fixed order. */
+    private static String contentsKeyOf(CompoundTag tag)
+    {
+        ListTag items = tag.getListOrEmpty(ITEMS_KEY);
+        List<String> stacks = new ArrayList<>();
+
+        for (int i = 0; i < items.size(); i++)
+        {
+            CompoundTag stack = items.getCompound(i).orElse(null);
+
+            if (stack == null)
+            {
+                continue;
+            }
+
+            int count = stack.getIntOr(COUNT_KEY, 1);
+
+            if (count <= 0)
+            {
+                continue;
+            }
+
+            Tag components = stack.get(COMPONENTS_KEY);
+
+            stacks.add(stack.getIntOr(SLOT_KEY, i) + ": " + stack.getStringOr(ID_KEY, "") + " x" + count +
+                       (components != null ? " " + components : ""));
+        }
+
+        // The order the stacks happen to be stored in says nothing about the contents
+        Collections.sort(stacks);
+
+        return String.join(", ", stacks);
     }
 
     /** The schematic's container, or null if it could not be created. */

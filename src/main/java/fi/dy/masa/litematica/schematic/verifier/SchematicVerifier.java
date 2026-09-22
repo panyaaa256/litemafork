@@ -704,7 +704,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         ContentsMismatch closest = null;
         double closestDistSq = Double.MAX_VALUE;
 
-        for (BlockPos pos : this.wrongNbtPositions.get(Pair.of(mismatch.stateExpected(), mismatch.stateFound())))
+        for (BlockPos pos : this.getPositionsFor(mismatch))
         {
             ContentsMismatch contents = this.wrongContents.get(pos);
             double distSq = pos.distToCenterSqr(center);
@@ -717,6 +717,46 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
 
         return closest;
+    }
+
+    /**
+     * The positions one result row stands for: a single container's, the containers of a
+     * grouped Wrong Contents row, or every position of the row's state pair.
+     */
+    private List<BlockPos> getPositionsFor(BlockMismatch mismatch)
+    {
+        if (mismatch.pos() != null)
+        {
+            return List.of(mismatch.pos());
+        }
+
+        ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> map = this.getMapForMismatchType(mismatch.mismatchType());
+
+        if (map == null)
+        {
+            return List.of();
+        }
+
+        List<BlockPos> positions = map.get(Pair.of(mismatch.stateExpected(), mismatch.stateFound()));
+
+        if (mismatch.contentsKey() == null)
+        {
+            return positions;
+        }
+
+        List<BlockPos> ofGroup = new ArrayList<>();
+
+        for (BlockPos pos : positions)
+        {
+            ContentsMismatch contents = this.wrongContents.get(pos);
+
+            if (contents != null && contents.getExpectedContentsKey().equals(mismatch.contentsKey()))
+            {
+                ofGroup.add(pos);
+            }
+        }
+
+        return ofGroup;
     }
 
     public boolean isContentsSlotExact()
@@ -1016,13 +1056,18 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         Pair<BlockState, BlockState> ignore = Pair.of(mismatch.stateExpected, mismatch.stateFound);
 
-        if (mismatch.pos() != null)
+        if (mismatch.pos() != null || mismatch.contentsKey() != null)
         {
-            // One container's row: ignore that container, not every other one of its kind
-            this.ignoredContentsPositions.add(mismatch.pos());
-            this.getMapForMismatchType(mismatch.mismatchType()).remove(ignore, mismatch.pos());
-            this.wrongContents.remove(mismatch.pos());
-            this.blockMismatches.remove(mismatch.pos());
+            // A Wrong Contents row: ignore the containers it stands for, not every other
+            // one of its kind
+            for (BlockPos pos : List.copyOf(this.getPositionsFor(mismatch)))
+            {
+                this.ignoredContentsPositions.add(pos);
+                this.getMapForMismatchType(mismatch.mismatchType()).remove(ignore, pos);
+                this.wrongContents.remove(pos);
+                this.blockMismatches.remove(pos);
+            }
+
             this.selectedEntries.remove(mismatch.mismatchType(), mismatch);
         }
         else if (this.ignoredMismatches.contains(ignore) == false)
@@ -1104,21 +1149,52 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void addCountFor(MismatchType mismatchType, ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> map, List<BlockMismatch> list)
     {
-        // Every container holds something different, so a row per state pair would say
-        // nothing about which one is wrong or how; unless asked to, list them one by one
-        if (mismatchType == MismatchType.WRONG_NBT && Configs.Generic.VERIFIER_GROUP_WRONG_CONTENTS.getBooleanValue() == false)
+        if (mismatchType == MismatchType.WRONG_NBT)
         {
-            for (Map.Entry<Pair<BlockState, BlockState>, BlockPos> entry : map.entries())
-            {
-                list.add(new BlockMismatch(mismatchType, entry.getKey().getLeft(), entry.getKey().getRight(), 1, entry.getValue()));
-            }
-
+            this.addWrongContentsCountFor(map, list);
             return;
         }
 
         for (Pair<BlockState, BlockState> pair : map.keySet())
         {
             list.add(new BlockMismatch(mismatchType, pair.getLeft(), pair.getRight(), map.get(pair).size()));
+        }
+    }
+
+    /**
+     * Every container holds something different, so a row per state pair would say nothing
+     * about which one is wrong or how; unless asked to, list them one by one.
+     * <p>
+     * Even when asked to, a row only puts together the containers whose schematic side
+     * contents are identical, so that the row does stand for one thing that should be
+     * there. The containers the server sent no contents for cannot be compared, so they
+     * keep a row of their own.
+     */
+    private void addWrongContentsCountFor(ArrayListMultimap<Pair<BlockState, BlockState>, BlockPos> map, List<BlockMismatch> list)
+    {
+        boolean group = Configs.Generic.VERIFIER_GROUP_WRONG_CONTENTS.getBooleanValue();
+
+        for (Pair<BlockState, BlockState> pair : map.keySet())
+        {
+            Map<String, Integer> countsByContents = new LinkedHashMap<>();
+
+            for (BlockPos pos : map.get(pair))
+            {
+                ContentsMismatch contents = group ? this.wrongContents.get(pos) : null;
+
+                if (contents == null)
+                {
+                    list.add(new BlockMismatch(MismatchType.WRONG_NBT, pair.getLeft(), pair.getRight(), 1, pos));
+                    continue;
+                }
+
+                countsByContents.merge(contents.getExpectedContentsKey(), 1, Integer::sum);
+            }
+
+            for (Map.Entry<String, Integer> entry : countsByContents.entrySet())
+            {
+                list.add(new BlockMismatch(MismatchType.WRONG_NBT, pair.getLeft(), pair.getRight(), entry.getValue(), null, entry.getKey()));
+            }
         }
     }
 
@@ -1660,10 +1736,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
             for (BlockMismatch mismatch : mismatches)
             {
-                // A single container's row stands for that one position only
-                if (mismatch.pos() != null)
+                // A single container's row stands for that one position only, a grouped
+                // Wrong Contents row for the containers whose contents match
+                if (mismatch.pos() != null || mismatch.contentsKey() != null)
                 {
-                    listOut.add(mismatch.pos());
+                    listOut.addAll(this.getPositionsFor(mismatch));
                     continue;
                 }
 
@@ -1809,14 +1886,25 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
     */
 
-    /** @param pos set when this row stands for a single position rather than every position of the pair */
-    public record BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count, @Nullable BlockPos pos)
+    /**
+     * @param pos set when this row stands for a single position rather than every position of the pair
+     * @param contentsKey set when this row stands for the containers of the pair whose
+     *                    schematic side contents match, rather than for every one of them
+     */
+    public record BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count,
+                                @Nullable BlockPos pos, @Nullable String contentsKey)
         implements Comparable<BlockMismatch>
     {
         /** The rows that do not stand for a single position. */
         public BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count)
         {
-            this(mismatchType, stateExpected, stateFound, count, null);
+            this(mismatchType, stateExpected, stateFound, count, null, null);
+        }
+
+        /** A single position's row. */
+        public BlockMismatch(MismatchType mismatchType, BlockState stateExpected, BlockState stateFound, int count, @Nullable BlockPos pos)
+        {
+            this(mismatchType, stateExpected, stateFound, count, pos, null);
         }
 
         @Override
@@ -1834,6 +1922,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             result = prime * result + ((this.stateExpected == null) ? 0 : this.stateExpected.hashCode());
             result = prime * result + ((this.stateFound == null) ? 0 : this.stateFound.hashCode());
             result = prime * result + ((this.pos == null) ? 0 : this.pos.hashCode());
+            result = prime * result + ((this.contentsKey == null) ? 0 : this.contentsKey.hashCode());
             return result;
         }
 
@@ -1858,7 +1947,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             }
             else if (this.stateFound != other.stateFound) { return false; }
 
-            return Objects.equals(this.pos, other.pos);
+            return Objects.equals(this.pos, other.pos) && Objects.equals(this.contentsKey, other.contentsKey);
         }
     }
 

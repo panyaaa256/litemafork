@@ -162,7 +162,7 @@
     "litematica.config.generic.comment.verifierCheckContents": "サーバーサイド検証 (開始 (サーバー)) で，コンテナの中身も比較し，\n違うものを中身違いとして表示する．\nサーバー側でも許可されている必要がある (Servux の verify_nbt)．\n変更は次回の検証開始時に反映される．",
     "litematica.config.generic.comment.verifierCheckEntities": "図面検証でエンティティ (額縁・絵画・防具立て・トロッコ・ボートなど)\nも検証し，ワールドにないものを不足エンティティとして表示する．\nクライアントがエンティティを受け取れる距離\n(トラッキング範囲．多くの場合描画距離よりずっと短い)\nより遠いエンティティは，近づいたときに初めて検証される．\n変更は次回の検証開始時に反映される．",
     "litematica.config.generic.comment.verifierEntityPositionTolerance": "図面検証で，ワールド内のエンティティが図面上の位置から\nどれだけ (ブロック単位) ずれていても正しく配置されている\nとみなすかの許容誤差",
-    "litematica.config.generic.comment.verifierGroupWrongContents": "中身違いを，他の分類と同じくブロックごとにまとめて表示する．\n無効ならコンテナ 1 つを 1 行で表示する．\nまとめた行にカーソルを合わせると，その中で最も近いコンテナの中身を表示する．",
+    "litematica.config.generic.comment.verifierGroupWrongContents": "中身違いを，他の分類と同じくブロックごとにまとめて表示する．\n無効ならコンテナ 1 つを 1 行で表示する．\n有効でも，設計図側の中身が完全に一致するコンテナのみが 1 行にまとまり，\nそれ以外やサーバが中身を送ってこなかったものはコンテナごとに 1 行になる．\nまとめた行にカーソルを合わせると，その中で最も近いコンテナの中身を表示する．",
     "litematica.config.generic.comment.verifierListType": "図面検証で使用するブロックリスト:\nNone - リストを使わずすべて検証\nBlacklist - verifierBlacklist のエントリを無視\nWhitelist - verifierWhitelist のエントリのみ検証\n変更は次回の検証開始時に反映される．",
     "litematica.config.generic.comment.verifierWhitelist": "verifierListType が Whitelist のときに\n図面検証で検証するブロック / blockstateプロパティのリスト\n書式は verifierBlacklist と同じ\nリストのブロックが関わらない位置は完全にスキップされる．\nブロックのエントリが1つもない場合は全ブロックを検証する．\nminecraft:observer[powered=*] - 指定したプロパティのみ比較し，\nそれ以外のプロパティの違いは正解扱い\n(=* はそのプロパティのすべての値の意味)\nminecraft:lever[powered=true] - stateが指定した値にすべて\n一致するもののみ検証対象に追加\nkey!=value と書くと条件が反転し，指定した値以外に一致\nブロック / state指定は設計図側のstateと照合され，\n設計図が空気の位置 (余分なブロック) のみ実世界側と照合される．\n変更は次回の検証開始時に反映される．",
     "litematica.config.generic.name.analyzeUsingServux": "Servuxで領域分析",
