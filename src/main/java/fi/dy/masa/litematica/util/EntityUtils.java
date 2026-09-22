@@ -385,6 +385,18 @@ public class EntityUtils
         return stack;
     }
 
+    /**
+     * Forgets the per type item lookups.
+     * <p>
+     * They are worked out by creating an entity of that type in the world the player is in,
+     * so they only hold while that is the world - a different server can have a different
+     * set of mods behind the same entity ids.
+     */
+    public static void clearEntityItemCache()
+    {
+        ENTITY_TYPE_ITEMS.clear();
+    }
+
     /** The entity type an id names, as {@link #getEntityItem(EntityType)} expects it. */
     @Nullable
     public static EntityType<?> getEntityTypeById(String id)
