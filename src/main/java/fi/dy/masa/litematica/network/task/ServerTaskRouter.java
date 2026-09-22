@@ -1,5 +1,7 @@
 package fi.dy.masa.litematica.network.task;
 
+import java.util.Map;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 import fi.dy.masa.malilib.util.data.tag.CompoundData;
@@ -14,9 +16,6 @@ import fi.dy.masa.litematica.schematic.verifier.ServerVerifySession;
  * string alone - rather than on the packet type, which every kind shares - is what lets a
  * new kind of task be added without touching the packet layer.
  * <p>
- * Verification predates this router and keeps its own session class, so it is matched by
- * name here rather than through {@link ServerTaskSessionBase}; its behaviour is unchanged.
- * <p>
  * A {@code Litematica...} task string this client does not know means the <i>server</i> is
  * newer than we are. It is logged and dropped, never guessed at - the same thing Servux does
  * with a request it does not know.
@@ -24,18 +23,21 @@ import fi.dy.masa.litematica.schematic.verifier.ServerVerifySession;
 public class ServerTaskRouter
 {
 	private static final String TASK_PREFIX = "Litematica";
-	private static final String VERIFY_PREFIX = "LitematicaVerify";
+
+	/**
+	 * The session each task prefix belongs to. The suppliers are named rather than looked
+	 * up among the created sessions on purpose: a reply can be the first thing that ever
+	 * mentions a kind of task, and a class nothing has touched yet has no instance to find.
+	 */
+	private static final Map<String, Supplier<? extends ServerTaskSessionBase>> SESSIONS = Map.of(
+			"LitematicaVerify", ServerVerifySession::getInstance,
+			"LitematicaAnalyze", ServerAnalyzeSession::getInstance,
+			"LitematicaMaterials", ServerMaterialListSession::getInstance);
 
 	/** Handles {@code PACKET_S2C_TASK_RESPONSE}, which is how the server reports a failure. */
 	public static void routeTaskResponse(CompoundData nbt)
 	{
 		String task = nbt.getStringOrDefault("Task", "");
-
-		if (task.equals(VERIFY_PREFIX + "Error"))
-		{
-			ServerVerifySession.getInstance().handleError(nbt);
-			return;
-		}
 
 		ServerTaskSessionBase session = sessionFor(task, "Error");
 
@@ -62,12 +64,6 @@ public class ServerTaskRouter
 		if (!task.startsWith(TASK_PREFIX))
 		{
 			return false;
-		}
-
-		if (task.equals(VERIFY_PREFIX + "Status"))
-		{
-			ServerVerifySession.getInstance().handleStatus(nbt);
-			return true;
 		}
 
 		ServerTaskSessionBase session = sessionFor(task, "Status");
@@ -97,12 +93,6 @@ public class ServerTaskRouter
 			return false;
 		}
 
-		if (task.equals(VERIFY_PREFIX + "Result"))
-		{
-			ServerVerifySession.getInstance().handleResult(nbt);
-			return true;
-		}
-
 		ServerTaskSessionBase session = sessionFor(task, "Result");
 
 		if (session != null)
@@ -126,11 +116,8 @@ public class ServerTaskRouter
 			return null;
 		}
 
-		return switch (task.substring(0, task.length() - suffix.length()))
-		{
-			case "LitematicaAnalyze" -> ServerAnalyzeSession.getInstance();
-			case "LitematicaMaterials" -> ServerMaterialListSession.getInstance();
-			default -> null;
-		};
+		Supplier<? extends ServerTaskSessionBase> session = SESSIONS.get(task.substring(0, task.length() - suffix.length()));
+
+		return session != null ? session.get() : null;
 	}
 }

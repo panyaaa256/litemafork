@@ -1,19 +1,16 @@
 package fi.dy.masa.litematica.scheduler.tasks;
 
 import java.util.List;
-import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
 import fi.dy.masa.malilib.util.position.IntBoundingBox;
-import fi.dy.masa.malilib.util.data.ItemType;
 import fi.dy.masa.litematica.materials.IMaterialList;
 import fi.dy.masa.litematica.materials.MaterialListEntry;
 import fi.dy.masa.litematica.materials.MaterialListUtils;
@@ -23,34 +20,14 @@ import fi.dy.masa.litematica.util.InclusionType;
 
 public class TaskCountBlocksArea extends TaskCountBlocksBase
 {
-    protected final InclusionType entitiesInclusionType;
-    protected final InclusionType containersInclusionType;
-    protected final Object2IntOpenHashMap<ItemType> entitiesTotal = new Object2IntOpenHashMap<>();
-    protected final Object2IntOpenHashMap<ItemType> containersTotal = new Object2IntOpenHashMap<>();
-
     public TaskCountBlocksArea(AreaSelection selection, IMaterialList materialList)
     {
         super(materialList, "litematica.gui.label.task_name.area_analyzer");
-
-        this.entitiesInclusionType = materialList.getEntitiesInclusionType();
-        this.containersInclusionType = materialList.getContainersInclusionType();
 
         this.addPerChunkBoxes(selection.getAllSubRegionBoxes());
     }
 
     @Override
-    protected boolean processChunk(ChunkPos pos)
-    {
-        boolean result = super.processChunk(pos);
-
-        if (this.entitiesInclusionType != InclusionType.NONE || this.containersInclusionType != InclusionType.NONE)
-        {
-            this.countEntitiesInChunk(pos);
-        }
-
-        return result;
-    }
-
     protected void countEntitiesInChunk(ChunkPos pos)
     {
         for (IntBoundingBox bb : this.getBoxesInChunk(pos))
@@ -62,31 +39,8 @@ public class TaskCountBlocksArea extends TaskCountBlocksBase
 
             for (Entity entity : entities)
             {
-                if (this.entitiesInclusionType != InclusionType.NONE)
-                {
-                    ItemStack stack = EntityUtils.getEntityItem(entity);
-
-                    if (stack.isEmpty() == false)
-                    {
-                        this.entitiesTotal.addTo(new ItemType(stack, false), 1);
-                    }
-                }
-
-                if (this.containersInclusionType != InclusionType.NONE && entity instanceof Container container)
-                {
-                    this.addContainerItems(container);
-                }
+                this.countEntity(entity);
             }
-        }
-    }
-
-    protected void addContainerItems(Container container)
-    {
-        Object2IntOpenHashMap<ItemType> items = MaterialListUtils.getInventoryItemCounts(container);
-
-        for (ItemType itemType : items.keySet())
-        {
-            this.containersTotal.addTo(itemType, items.getInt(itemType));
         }
     }
 

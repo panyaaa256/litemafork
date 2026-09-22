@@ -4,8 +4,6 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -15,6 +13,7 @@ import fi.dy.masa.malilib.util.data.ItemType;
 import fi.dy.masa.malilib.util.data.tag.BaseData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.malilib.util.data.tag.StringData;
+import fi.dy.masa.litematica.materials.MaterialListUtils;
 import fi.dy.masa.litematica.util.EntityUtils;
 
 /**
@@ -45,12 +44,9 @@ public class ServerTaskResultReader
 	/** Adds an item identifier list and its parallel count array to an item tally. */
 	public static void readItemCounts(@Nullable ListData ids, int[] counts, Object2IntOpenHashMap<ItemType> out)
 	{
-		readCounts(ids, counts, out, id ->
-		{
-			Identifier identifier = Identifier.tryParse(id);
-
-			return identifier != null ? new ItemStack(BuiltInRegistries.ITEM.getValue(identifier)) : ItemStack.EMPTY;
-		});
+		// The same lookup the schematic side container counting uses, so that an id this
+		// client does not know is left out of both rather than counted as air
+		readCounts(ids, counts, out, MaterialListUtils::getItemById);
 	}
 
 	/**

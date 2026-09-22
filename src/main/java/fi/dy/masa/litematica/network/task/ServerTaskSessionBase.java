@@ -19,7 +19,6 @@ import fi.dy.masa.litematica.network.ServuxLitematicaPacket;
 import fi.dy.masa.litematica.render.infohud.IInfoHudRenderer;
 import fi.dy.masa.litematica.render.infohud.InfoHud;
 import fi.dy.masa.litematica.render.infohud.RenderPhase;
-import fi.dy.masa.litematica.schematic.verifier.ServerVerifySession;
 
 /**
  * The client half of one server side task, minus whatever the task actually is.
@@ -139,7 +138,7 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 		}
 
 		nbt.putString("Task", this.taskPrefix());
-		nbt.putIntArray("SessionId", ServerVerifySession.uuidToIntArray(this.sessionId));
+		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 
 		if (!ServuxLitematicaHandler.getInstance().encodeClientRequest(nbt))
 		{
@@ -163,7 +162,7 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 
 		CompoundData nbt = new CompoundData();
 		nbt.putString("Task", this.taskPrefix() + "Cancel");
-		nbt.putIntArray("SessionId", ServerVerifySession.uuidToIntArray(this.sessionId));
+		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 
 		ServuxLitematicaHandler.getInstance().encodeClientData(ServuxLitematicaPacket.TaskCancel(nbt));
 
@@ -183,7 +182,7 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 	/** True when a reply names the session we are actually waiting on. */
 	protected boolean matches(CompoundData nbt)
 	{
-		UUID id = ServerVerifySession.uuidFromIntArray(nbt.getIntArray("SessionId"));
+		UUID id = uuidFromIntArray(nbt.getIntArray("SessionId"));
 
 		return this.sessionId != null && this.sessionId.equals(id);
 	}
@@ -198,7 +197,7 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 
 		CompoundData ack = new CompoundData();
 		ack.putString("Task", this.taskPrefix() + "Ack");
-		ack.putIntArray("SessionId", ServerVerifySession.uuidToIntArray(this.sessionId));
+		ack.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 		ack.putInt("Batch", batch);
 
 		ServuxLitematicaHandler.getInstance().encodeClientData(ServuxLitematicaPacket.TaskRequest(ack));
@@ -235,11 +234,17 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 			InfoUtils.showGuiOrInGameMessage(MessageType.ERROR, Component.translatable(key).getString());
 		}
 
+		this.onFailed();
 		this.clear();
 	}
 
 	/** One result batch. */
 	public abstract void handleResult(CompoundData nbt);
+
+	/** Tells whatever was waiting on this run that it is not coming. */
+	protected void onFailed()
+	{
+	}
 
 	/** Reads whatever extra fields this kind of task puts in its status pings. */
 	protected void onStatus(CompoundData nbt)
@@ -306,5 +311,26 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 	public List<String> getText(RenderPhase phase)
 	{
 		return this.infoHudLines;
+	}
+
+	/** A session id travels as four ints, the way vanilla stores a UUID in NBT. */
+	private static int[] uuidToIntArray(UUID uuid)
+	{
+		long most = uuid.getMostSignificantBits();
+		long least = uuid.getLeastSignificantBits();
+
+		return new int[] {(int) (most >> 32), (int) most, (int) (least >> 32), (int) least};
+	}
+
+	@Nullable
+	private static UUID uuidFromIntArray(@Nullable int[] array)
+	{
+		if (array == null || array.length != 4)
+		{
+			return null;
+		}
+
+		return new UUID((long) array[0] << 32 | (array[1] & 0xFFFFFFFFL),
+		                (long) array[2] << 32 | (array[3] & 0xFFFFFFFFL));
 	}
 }

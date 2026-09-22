@@ -267,11 +267,32 @@ public class MaterialListUtils
 
     private static void addItemTagCount(CompoundData itemTag, Object2IntOpenHashMap<ItemType> total)
     {
-        Identifier identifier = Identifier.tryParse(itemTag.getString("id"));
-        Item item = BuiltInRegistries.ITEM.getValue(identifier);
-        int count = itemTag.getInt("count");
-        ItemType itemType = new ItemType(new ItemStack(item), false);
-        total.addTo(itemType, count);
+        ItemStack stack = getItemById(itemTag.getString("id"));
+
+        if (stack.isEmpty() == false)
+        {
+            total.addTo(new ItemType(stack, false), itemTag.getInt("count"));
+        }
+    }
+
+    /**
+     * The item an id names, or the empty stack when this client does not know it.
+     * <p>
+     * The item registry is a defaulted one, so an unparseable or unknown id - an item of a
+     * mod the client does not have, for one - resolves to air rather than to nothing, and
+     * would be tallied up as a material under that name. Every caller counting items by
+     * their id goes through here so that none of them do that.
+     */
+    public static ItemStack getItemById(String id)
+    {
+        Identifier identifier = Identifier.tryParse(id);
+
+        if (identifier == null)
+        {
+            return ItemStack.EMPTY;
+        }
+
+        return BuiltInRegistries.ITEM.getOptional(identifier).map(ItemStack::new).orElse(ItemStack.EMPTY);
     }
 
     /**

@@ -46,8 +46,7 @@ import fi.dy.masa.litematica.config.Configs;
 public class VerifierListRegistry
 {
     private final ListType listType;
-    private final Set<Block> listedBlocks = new HashSet<>();
-    private final List<TagKey<Block>> listedBlockTags = new ArrayList<>();
+    private final BlockAndTagSet listedBlocks = new BlockAndTagSet();
     private final Map<Block, Set<String>> listedPropertiesPerBlock = new HashMap<>();
     private final List<Map.Entry<TagKey<Block>, Set<String>>> listedPropertiesPerTag = new ArrayList<>();
     private final Set<String> globalListedProperties = new HashSet<>();
@@ -161,6 +160,11 @@ public class VerifierListRegistry
                     this.globalStateMatchers.add(conditionsFinal);
                 }
             }
+            else if (propertiesFinal == null && conditionsFinal == null)
+            {
+                // A bare block or tag name, with nothing said about its properties
+                this.listedBlocks.add(trimmed);
+            }
             else if (trimmed.startsWith("#"))
             {
                 Optional<TagKey<Block>> tag = BlockUtils.getBlockTagFromString(trimmed);
@@ -173,11 +177,6 @@ public class VerifierListRegistry
                     if (conditionsFinal != null)
                     {
                         this.stateMatchersPerTag.add(Map.entry(t, conditionsFinal));
-                    }
-
-                    if (propertiesFinal == null && conditionsFinal == null)
-                    {
-                        this.listedBlockTags.add(t);
                     }
                 });
             }
@@ -196,11 +195,6 @@ public class VerifierListRegistry
                     if (conditionsFinal != null)
                     {
                         this.stateMatchersPerBlock.computeIfAbsent(b, (k) -> new ArrayList<>()).add(conditionsFinal);
-                    }
-
-                    if (propertiesFinal == null && conditionsFinal == null)
-                    {
-                        this.listedBlocks.add(b);
                     }
                 });
             }
@@ -306,7 +300,7 @@ public class VerifierListRegistry
 
     private boolean hasRestrictingEntries()
     {
-        return this.listedBlocks.isEmpty() == false || this.listedBlockTags.isEmpty() == false ||
+        return this.listedBlocks.isEmpty() == false ||
                this.listedPropertiesPerBlock.isEmpty() == false || this.listedPropertiesPerTag.isEmpty() == false ||
                this.stateMatchersPerBlock.isEmpty() == false || this.stateMatchersPerTag.isEmpty() == false ||
                this.globalStateMatchers.isEmpty() == false;
@@ -314,20 +308,7 @@ public class VerifierListRegistry
 
     private boolean isBlockListedWithoutProperties(Block block)
     {
-        if (this.listedBlocks.contains(block))
-        {
-            return true;
-        }
-
-        for (TagKey<Block> tag : this.listedBlockTags)
-        {
-            if (block.defaultBlockState().is(tag))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return this.listedBlocks.contains(block);
     }
 
     private boolean matchesAnyStateMatcher(BlockState state)

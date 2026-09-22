@@ -1,37 +1,35 @@
 package fi.dy.masa.litematica.schematic.verifier;
 
-import java.util.UUID;
+import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
+import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.malilib.util.data.Constants;
 import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.config.Configs;
-import fi.dy.masa.litematica.data.EntityDataManager;
-import fi.dy.masa.litematica.network.ServuxLitematicaHandler;
-import fi.dy.masa.litematica.network.ServuxLitematicaPacket;
+import fi.dy.masa.litematica.network.task.ServerTaskSessionBase;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 
 /**
  * Client half of a server side verification.
  * <p>
  * The server walks the placement without being limited by the client's render distance and
- * streams the mismatches back in batches; this class uploads the request, acknowledges each
- * batch to pull the next one, and hands the decoded entries to the {@link SchematicVerifier}
- * that asked for them.
- * <p>
- * Only one session exists at a time - the server enforces one per player anyway - so this
- * is a singleton keyed on the session id it generated for the current request.
+ * streams the mismatches back in batches; this class uploads the request and hands the
+ * decoded entries to the {@link SchematicVerifier} that asked for them. Everything else -
+ * the session id, the acknowledgement that pulls the next batch, cancelling, and the info
+ * HUD lines - is the task protocol every server side task speaks, and comes from
+ * {@link ServerTaskSessionBase}.
  */
-public class ServerVerifySession
+public class ServerVerifySession extends ServerTaskSessionBase
 {
 	private static final ServerVerifySession INSTANCE = new ServerVerifySession();
 
@@ -40,14 +38,26 @@ public class ServerVerifySession
 		return INSTANCE;
 	}
 
-	@Nullable private UUID sessionId;
 	@Nullable private SchematicVerifier verifier;
 
 	private ServerVerifySession() {}
 
-	public boolean isActive()
+	@Override
+	protected String taskPrefix()
 	{
-		return this.sessionId != null;
+		return "LitematicaVerify";
+	}
+
+	@Override
+	protected String featureName()
+	{
+		return "verify";
+	}
+
+	@Override
+	protected String displayNameKey()
+	{
+		return "litematica.gui.label.task_name.verifier";
 	}
 
 	/**
@@ -58,105 +68,72 @@ public class ServerVerifySession
 	 */
 	public boolean start(SchematicVerifier verifier, SchematicPlacement placement)
 	{
-		if (!EntityDataManager.getInstance().hasServuxFeature("verify"))
+		// Unlike the other tasks this one has no local fallback to quietly drop back to:
+		// the player pressed the server side button, so say why nothing happens
+		if (this.isSupportedByServer() == false)
 		{
 			InfoUtils.showGuiOrInGameMessage(MessageType.ERROR, "litematica.message.error.verifier.no_server_support");
 			return false;
 		}
 
-		this.cancel();
+		if (this.begin() == false)
+		{
+			return false;
+		}
 
-		this.sessionId = UUID.randomUUID();
 		this.verifier = verifier;
 
 		CompoundData nbt = placement.toData(true);
-		nbt.putString("Task", "LitematicaVerify");
-		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
 		// Off unless asked for; the server's verify_nbt still decides whether it is allowed
 		nbt.putBoolean("VerifyNbt", Configs.Generic.VERIFIER_CHECK_CONTENTS.getBooleanValue());
 
 		Litematica.debugLog("ServerVerifySession: requesting verification of '{}' (session {})", placement.getName(), this.sessionId);
 
-		// A request too large for the packet splitter is never sent, so no reply would ever
-		// come; report that now rather than leave the verifier waiting on the server forever
-		if (!ServuxLitematicaHandler.getInstance().encodeClientRequest(nbt))
-		{
-			this.clear();
-			return false;
-		}
-
-		return true;
+		return this.send(nbt);
 	}
 
-	/** Tells the server to abandon the run, and forgets it locally. */
-	public void cancel()
+	@Override
+	protected void clear()
 	{
-		if (this.sessionId == null)
-		{
-			return;
-		}
+		super.clear();
 
-		CompoundData nbt = new CompoundData();
-		nbt.putString("Task", "LitematicaVerifyCancel");
-		nbt.putIntArray("SessionId", uuidToIntArray(this.sessionId));
-
-		ServuxLitematicaHandler.getInstance().encodeClientData(ServuxLitematicaPacket.TaskCancel(nbt));
-
-		this.clear();
-	}
-
-	private void clear()
-	{
-		this.sessionId = null;
 		this.verifier = null;
 	}
 
-	/** True when a reply names the session we are actually waiting on. */
-	private boolean matches(CompoundData nbt)
+	/** The verifier keeps the counts too: its GUI shows them as a status line. */
+	@Override
+	protected void onStatus(CompoundData nbt)
 	{
-		UUID id = uuidFromIntArray(nbt.getIntArray("SessionId"));
-
-		return this.sessionId != null && this.sessionId.equals(id);
+		if (this.verifier != null)
+		{
+			this.verifier.onServerProgress(this.getChunksDone(), this.getChunksTotal(), nbt.getInt("Mismatches"));
+		}
 	}
 
-	/** Progress ping while the server is still walking chunks. Returns true when it was ours. */
-	public boolean handleStatus(CompoundData nbt)
+	/** The chunks the server has not read yet, in place of the local pending chunk list. */
+	@Override
+	protected void addExtraInfoHudLines(List<String> lines)
 	{
-		if (!this.matches(nbt) || this.verifier == null)
-		{
-			return false;
-		}
+		final int unseen = this.verifier != null ? this.verifier.getUnseenChunks() : 0;
+		String color = unseen > 0 ? GuiBase.TXT_GOLD : GuiBase.TXT_GREEN;
 
-		this.verifier.onServerProgress(nbt.getInt("ChunksDone"),
-		                               nbt.getInt("ChunksTotal"),
-		                               nbt.getInt("Mismatches"));
-
-		return true;
+		lines.add(StringUtils.translate("litematica.hud.server_task.unseen", color + unseen + GuiBase.TXT_RST));
 	}
 
-	/** A failure the server reports as a translation key, so it renders in our language. */
-	public void handleError(CompoundData nbt)
+	@Override
+	protected void onFailed()
 	{
-		// An error can arrive before we know the session id is valid, so do not filter it
-		String key = nbt.getString("Key");
-
-		if (!key.isEmpty())
-		{
-			InfoUtils.showGuiOrInGameMessage(MessageType.ERROR, Component.translatable(key).getString());
-		}
-
 		if (this.verifier != null)
 		{
 			this.verifier.onServerFailed();
 		}
-
-		this.clear();
 	}
 
 	/**
 	 * Decodes one result batch and acknowledges it, which is what pulls the next one out
 	 * of the server. The final batch also carries the run totals.
 	 */
+	@Override
 	public void handleResult(CompoundData nbt)
 	{
 		if (!this.matches(nbt) || this.verifier == null)
@@ -218,7 +195,6 @@ public class ServerVerifySession
 			}
 		}
 
-		final int batch = nbt.getInt("Batch");
 		final boolean last = nbt.getBoolean("Final");
 
 		if (last)
@@ -228,36 +204,11 @@ public class ServerVerifySession
 		}
 
 		// Acknowledge either way: the server frees the session on the final ack
-		CompoundData ack = new CompoundData();
-		ack.putString("Task", "LitematicaVerifyAck");
-		ack.putIntArray("SessionId", uuidToIntArray(this.sessionId));
-		ack.putInt("Batch", batch);
-
-		ServuxLitematicaHandler.getInstance().encodeClientData(ServuxLitematicaPacket.TaskRequest(ack));
+		this.acknowledge(nbt.getInt("Batch"));
 
 		if (last)
 		{
 			this.clear();
 		}
-	}
-
-	public static int[] uuidToIntArray(UUID uuid)
-	{
-		long most = uuid.getMostSignificantBits();
-		long least = uuid.getLeastSignificantBits();
-
-		return new int[] {(int) (most >> 32), (int) most, (int) (least >> 32), (int) least};
-	}
-
-	@Nullable
-	public static UUID uuidFromIntArray(@Nullable int[] array)
-	{
-		if (array == null || array.length != 4)
-		{
-			return null;
-		}
-
-		return new UUID((long) array[0] << 32 | (array[1] & 0xFFFFFFFFL),
-		                (long) array[2] << 32 | (array[3] & 0xFFFFFFFFL));
 	}
 }

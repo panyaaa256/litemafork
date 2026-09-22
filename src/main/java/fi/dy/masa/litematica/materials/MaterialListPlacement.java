@@ -52,45 +52,20 @@ public class MaterialListPlacement extends MaterialListBase
     public void reCreateMaterialList()
     {
         boolean ignoreState = Configs.Generic.MATERIAL_LIST_IGNORE_STATE.getBooleanValue();
+        ServerMaterialListSession session = ServerMaterialListSession.getInstance();
 
         // The server can see the whole placement, where the local task only sees what is
         // loaded within the render distance and counts everything beyond it as missing
-        if (Configs.Generic.MATERIAL_LIST_USING_SERVUX.getBooleanValue() && this.startServerMaterialList(ignoreState))
+        if (this.startServerTask(Configs.Generic.MATERIAL_LIST_USING_SERVUX.getBooleanValue(), session,
+                                 () -> session.start(this, this.placement, ignoreState),
+                                 "litematica.message.warn.material_list.no_server_support",
+                                 "litematica.message.material_list.server_requested"))
         {
             return;
-        }
-
-        // A server run still in flight would land on top of the local count and replace it
-        if (ServerMaterialListSession.getInstance().isActiveFor(this))
-        {
-            ServerMaterialListSession.getInstance().cancel();
         }
 
         TaskCountBlocksPlacement task = new TaskCountBlocksPlacement(this.placement, this, ignoreState);
         TaskScheduler.getInstanceClient().scheduleTask(task, 20);
         InfoUtils.showGuiOrInGameMessage(MessageType.INFO, "litematica.message.scheduled_task_added");
-    }
-
-    /**
-     * @return false when the server cannot do it, so that the local task still runs; the
-     *         list a player gets then is the one they would have got without the option
-     */
-    private boolean startServerMaterialList(boolean ignoreState)
-    {
-        ServerMaterialListSession session = ServerMaterialListSession.getInstance();
-
-        if (session.isSupportedByServer() == false)
-        {
-            InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.material_list.no_server_support");
-            return false;
-        }
-
-        if (session.start(this, this.placement, ignoreState))
-        {
-            InfoUtils.showGuiOrInGameMessage(MessageType.INFO, "litematica.message.material_list.server_requested");
-            return true;
-        }
-
-        return false;
     }
 }
