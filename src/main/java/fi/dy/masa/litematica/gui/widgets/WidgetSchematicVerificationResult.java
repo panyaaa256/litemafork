@@ -3,7 +3,6 @@ package fi.dy.masa.litematica.gui.widgets;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
@@ -125,12 +124,6 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
 
         for (BlockMismatch entry : mismatches)
         {
-            // A single container's row shows where it is in place of a count
-            if (entry.pos() != null)
-            {
-                maxCountLength = Math.max(maxCountLength, StringUtils.getStringWidth(entry.pos().toShortString()));
-            }
-
             ItemStack stack = ItemUtils.getItemForState(entry.stateExpected());
             String name = BlockMismatchInfo.getDisplayName(entry.stateExpected(), stack);
             maxNameLengthExpected = Math.max(maxNameLengthExpected, StringUtils.getStringWidth(name));
@@ -319,8 +312,7 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
                 this.drawString(ctx, x2 + 20, y, color, this.mismatchInfo.nameFound);
             }
 
-            BlockPos pos = this.mismatchEntry.blockMismatch.pos();
-            this.drawString(ctx, x3, y, color, pos != null ? pos.toShortString() : String.valueOf(this.count));
+            this.drawString(ctx, x3, y, color, String.valueOf(this.count));
 
             y = this.y + 3;
             RenderUtils.drawRect(ctx, x1, y, 16, 16, 0x20FFFFFF); // light background for the item
