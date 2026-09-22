@@ -15,9 +15,11 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
@@ -83,6 +85,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final Map<UUID, MissingEntityEntry> matchedClientEntities = new HashMap<>();
     private final Set<EntityMismatch> selectedEntityEntries = new HashSet<>();
     private final Set<UUID> entityHighlightUuids = new HashSet<>();
+    /**
+     * Selected missing entities whose schematic world entity is not known yet, because it was
+     * not loaded when the server reported them. They are paired up as it gets rendered.
+     */
+    private final List<MissingEntityEntry> entityHighlightPending = new ArrayList<>();
     private final List<MismatchRenderPos> entityMismatchPositionsForRender = new ArrayList<>();
     private final Object2IntOpenHashMap<BlockState> correctStateCounts = new Object2IntOpenHashMap<>();
     private final Object2ObjectOpenHashMap<BlockPos, BlockMismatch> blockMismatches = new Object2ObjectOpenHashMap<>();
@@ -174,16 +181,53 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
 
     /**
-     * Whether the schematic world entity with the given UUID should be rendered
-     * with the vanilla glow outline, because it is a currently selected missing entity
-     * in one of the active verifiers.
+     * Whether the given schematic world entity should be rendered with the vanilla glow
+     * outline, because it is a currently selected missing entity in one of the active
+     * verifiers.
+     * <p>
+     * Called for each schematic entity as it is rendered, which is also the first moment a
+     * server reported entity far from the player can be paired with its schematic copy.
      */
-    public static boolean shouldHighlightSchematicEntity(UUID uuid)
+    public static boolean shouldHighlightSchematicEntity(Entity entity)
     {
         for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
         {
-            if (activeVerifier.entityHighlightUuids.contains(uuid))
+            if (activeVerifier.entityHighlightUuids.contains(entity.getUUID()) ||
+                activeVerifier.claimPendingHighlight(entity))
             {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Pairs a just rendered schematic entity with a selected missing entry that has no
+     * schematic entity yet, by the same type and tolerance rule as everywhere else, and
+     * remembers the pairing so that later frames go by the UUID.
+     */
+    private boolean claimPendingHighlight(Entity entity)
+    {
+        if (this.entityHighlightPending.isEmpty())
+        {
+            return false;
+        }
+
+        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+        final double maxDistSq = Math.max(tolerance, 0.001) * Math.max(tolerance, 0.001);
+        Iterator<MissingEntityEntry> iter = this.entityHighlightPending.iterator();
+
+        while (iter.hasNext())
+        {
+            MissingEntityEntry entry = iter.next();
+
+            if (entry.entityType == entity.getType() && entry.pos.distanceToSqr(entity.position()) <= maxDistSq)
+            {
+                entry.schematicEntityUuid = entity.getUUID();
+                this.entityHighlightUuids.add(entity.getUUID());
+                iter.remove();
+
                 return true;
             }
         }
@@ -444,6 +488,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.mismatchBlockPositionsForRender.clear();
         this.entityMismatchPositionsForRender.clear();
         this.entityHighlightUuids.clear();
+        this.entityHighlightPending.clear();
         this.infoHudLines.clear();
     }
 
@@ -535,6 +580,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.setCompletionListener(completionListener);
 
         this.serverMode = true;
+        // Captured with the request: the server checks entities only if asked to
+        this.checkEntities = ServerVerifySession.isCheckingEntities();
         this.verificationStarted = true;
         this.verificationActive = true;
 
@@ -668,6 +715,69 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         {
             this.wrongContents.put(pos, new ContentsMismatch(pos, expected, found));
         }
+    }
+
+    /**
+     * A schematic entity the server found no counterpart for in the world.
+     * <p>
+     * The server can see every entity, so there is no "unseen" here: this goes straight into
+     * the missing list. From then on it is kept up to date the same way as a local result -
+     * an entity that turns up within the tolerance later is taken off the list again by
+     * {@link #onClientEntityAdded(Entity)}.
+     */
+    public void addServerMissingEntity(String entityId, Vec3 pos)
+    {
+        Identifier id = Identifier.tryParse(entityId);
+        EntityType<?> type = id != null ? BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null) : null;
+
+        if (type == null || this.checkEntities == false)
+        {
+            return;
+        }
+
+        // The schematic world's copy, for the glow outline on a selected entry. It is only
+        // there while its chunk is within render distance, which the server's is not bound by.
+        Entity schematicEntity = this.findSchematicEntity(type, pos);
+
+        if (schematicEntity != null)
+        {
+            this.cacheEntityMismatchStack(schematicEntity);
+        }
+        else
+        {
+            this.cacheEntityMismatchStack(type);
+        }
+
+        UUID uuid = schematicEntity != null ? schematicEntity.getUUID() : null;
+        this.missingEntitiesPositions.put(type, new MissingEntityEntry(type, uuid, pos));
+    }
+
+    /** The schematic world entity of this type closest to pos, within the position tolerance. */
+    @Nullable
+    private Entity findSchematicEntity(EntityType<?> type, Vec3 pos)
+    {
+        if (this.worldSchematic == null)
+        {
+            return null;
+        }
+
+        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
+        Entity closest = null;
+        double closestDistSq = Double.MAX_VALUE;
+
+        for (Entity candidate : this.worldSchematic.getEntities((Entity) null, searchBox, e -> e.getType() == type))
+        {
+            double distSq = candidate.position().distanceToSqr(pos);
+
+            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
+            {
+                closestDistSq = distSq;
+                closest = candidate;
+            }
+        }
+
+        return closest;
     }
 
     /**
@@ -838,6 +948,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.matchedClientEntities.clear();
         this.selectedEntityEntries.clear();
         this.entityHighlightUuids.clear();
+        this.entityHighlightPending.clear();
         this.entityMismatchPositionsForRender.clear();
 
         ACTIVE_VERIFIERS.remove(this);
@@ -1369,6 +1480,25 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
     }
 
+    /**
+     * The list icon for a type whose schematic entity is not loaded on this client, taken
+     * from a throwaway instance that is never added to any world.
+     */
+    private void cacheEntityMismatchStack(EntityType<?> type)
+    {
+        if (this.entityMismatchStacks.containsKey(type) || this.worldSchematic == null)
+        {
+            return;
+        }
+
+        Entity probe = type.create(this.worldSchematic, EntitySpawnReason.LOAD);
+
+        if (probe != null)
+        {
+            this.cacheEntityMismatchStack(probe);
+        }
+    }
+
     private void onClientEntityAdded(Entity entity)
     {
         // Also while the verification is still running: an entity's spawn packet can arrive
@@ -1588,6 +1718,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private void updateSelectedEntityHighlights(BlockPos centerPos)
     {
         this.entityHighlightUuids.clear();
+        this.entityHighlightPending.clear();
         this.entityMismatchPositionsForRender.clear();
 
         List<MissingEntityEntry> entries;
@@ -1608,7 +1739,17 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
         for (MissingEntityEntry entry : entries)
         {
-            this.entityHighlightUuids.add(entry.schematicEntityUuid);
+            // Unknown for a server result whose schematic entity was not loaded yet; that one
+            // is paired up once the entity gets rendered, see claimPendingHighlight()
+            if (entry.schematicEntityUuid != null)
+            {
+                this.entityHighlightUuids.add(entry.schematicEntityUuid);
+            }
+            else
+            {
+                this.entityHighlightPending.add(entry);
+            }
+
             this.entityMismatchPositionsForRender.add(new MismatchRenderPos(MismatchType.MISSING_ENTITY, BlockPos.containing(entry.pos)));
         }
 
@@ -1923,10 +2064,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public static class MissingEntityEntry
     {
         public final EntityType<?> entityType;
-        public final UUID schematicEntityUuid;
+        /** Filled in later for a server result whose schematic entity was not loaded yet. */
+        @Nullable public UUID schematicEntityUuid;
         public final Vec3 pos;
 
-        public MissingEntityEntry(EntityType<?> entityType, UUID schematicEntityUuid, Vec3 pos)
+        public MissingEntityEntry(EntityType<?> entityType, @Nullable UUID schematicEntityUuid, Vec3 pos)
         {
             this.entityType = entityType;
             this.schematicEntityUuid = schematicEntityUuid;

@@ -1358,7 +1358,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
 
                         // Highlight the schematic entities of currently selected "missing entity"
                         // verifier results with the vanilla glow outline
-                        if (SchematicVerifier.shouldHighlightSchematicEntity(entityTmp.getUUID()))
+                        if (SchematicVerifier.shouldHighlightSchematicEntity(entityTmp))
                         {
                             state.outlineColor = 0xFF000000 | Configs.Colors.VERIFIER_ENTITY_HIGHLIGHT_COLOR.getIntegerValue();
                             renderStates.haveGlowingEntities = true;
