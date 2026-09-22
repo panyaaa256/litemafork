@@ -498,7 +498,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.clearState();
     }
 
-    public void startVerification(ClientLevel worldClient, WorldSchematic worldSchematic,
+    /**
+     * Drops whatever the last run left behind and takes on what the next one verifies. The
+     * caller still has to start it, locally or on the server.
+     */
+    private void prepareVerification(ClientLevel worldClient, WorldSchematic worldSchematic,
             SchematicPlacement schematicPlacement, ICompletionListener completionListener)
     {
         this.reset();
@@ -510,6 +514,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.verifierListRegistry = new VerifierListRegistry();
 
         this.setCompletionListener(completionListener);
+    }
+
+    public void startVerification(ClientLevel worldClient, WorldSchematic worldSchematic,
+            SchematicPlacement schematicPlacement, ICompletionListener completionListener)
+    {
+        this.prepareVerification(worldClient, worldSchematic, schematicPlacement, completionListener);
+
         this.checkEntities = Configs.Generic.VERIFIER_CHECK_ENTITIES.getBooleanValue();
         this.requiredChunks.addAll(schematicPlacement.getTouchedChunks(SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED));
         this.totalRequiredChunks = this.requiredChunks.size();
@@ -535,29 +546,19 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public void startServerVerification(ClientLevel worldClient, WorldSchematic worldSchematic,
             SchematicPlacement schematicPlacement, ICompletionListener completionListener)
     {
-        this.reset();
+        this.prepareVerification(worldClient, worldSchematic, schematicPlacement, completionListener);
 
-        this.worldClient = worldClient;
-        this.worldSchematic = worldSchematic;
-        this.schematicPlacement = schematicPlacement;
-        this.ignoreBlockRegistry = new IgnoreBlockRegistry();
-        this.verifierListRegistry = new VerifierListRegistry();
-
-        this.setCompletionListener(completionListener);
+        // A run only counts as started once the request has actually gone out; a server
+        // that cannot run it leaves the verifier as the reset above left it
+        if (ServerVerifySession.getInstance().start(this, schematicPlacement) == false)
+        {
+            return;
+        }
 
         this.serverMode = true;
         this.checkContents = Configs.Generic.VERIFIER_CHECK_CONTENTS.getBooleanValue();
         this.verificationStarted = true;
         this.verificationActive = true;
-
-        if (ServerVerifySession.getInstance().start(this, schematicPlacement) == false)
-        {
-            this.serverMode = false;
-            this.checkContents = false;
-            this.verificationStarted = false;
-            this.verificationActive = false;
-            return;
-        }
 
         InfoHud.getInstance().addInfoHudRenderer(this, true);
         ACTIVE_VERIFIERS.add(this);
@@ -1316,17 +1317,41 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
             if (match != null)
             {
-                this.usedClientEntityUuids.add(match.getUUID());
-                this.matchedClientEntities.put(match.getUUID(), entry);
-            }
-            else if (this.canClientSeeEntityAt(entry.entityType, entry.pos))
-            {
-                this.missingEntitiesPositions.put(schematicEntity.getType(), entry);
+                this.matchEntity(match, entry);
             }
             else
             {
-                this.unseenEntitiesPositions.put(schematicEntity.getType(), entry);
+                this.fileUnmatchedEntity(entry);
             }
+        }
+    }
+
+    /** True while an entity result is worth keeping up to date: during a run, and after it. */
+    private boolean isEntityTrackingLive()
+    {
+        return this.checkEntities && (this.verificationActive || this.finished);
+    }
+
+    /** Remembers which client world entity a schematic entity was found as. */
+    private void matchEntity(Entity match, MissingEntityEntry entry)
+    {
+        this.usedClientEntityUuids.add(match.getUUID());
+        this.matchedClientEntities.put(match.getUUID(), entry);
+    }
+
+    /**
+     * Files a schematic entity that has no counterpart in the world as missing, or as
+     * unseen when the client would not have been sent one there in the first place.
+     */
+    private void fileUnmatchedEntity(MissingEntityEntry entry)
+    {
+        if (this.canClientSeeEntityAt(entry.entityType, entry.pos))
+        {
+            this.missingEntitiesPositions.put(entry.entityType, entry);
+        }
+        else
+        {
+            this.unseenEntitiesPositions.put(entry.entityType, entry);
         }
     }
 
@@ -1366,8 +1391,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
      */
     private void checkUnseenEntities(ProfilerFiller profiler)
     {
-        if (this.checkEntities == false || this.unseenEntitiesPositions.isEmpty() ||
-            (this.verificationActive == false && this.finished == false))
+        if (this.isEntityTrackingLive() == false || this.unseenEntitiesPositions.isEmpty())
         {
             return;
         }
@@ -1394,12 +1418,12 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
             if (match != null)
             {
-                this.usedClientEntityUuids.add(match.getUUID());
-                this.matchedClientEntities.put(match.getUUID(), entry);
+                this.matchEntity(match, entry);
             }
             else
             {
-                // If its spawn packet is merely late, onClientEntityAdded() takes it back out
+                // Seen but not there. If its spawn packet is merely late, onClientEntityAdded()
+                // takes it back out
                 this.missingEntitiesPositions.put(entry.entityType, entry);
             }
         }
@@ -1461,8 +1485,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         // Also while the verification is still running: an entity's spawn packet can arrive
         // after its chunk was already checked, and it must not stay reported as missing
-        if (this.checkEntities == false || (this.verificationActive == false && this.finished == false) ||
-            isVerifiableEntity(entity) == false || this.usedClientEntityUuids.contains(entity.getUUID()))
+        if (this.isEntityTrackingLive() == false || isVerifiableEntity(entity) == false ||
+            this.usedClientEntityUuids.contains(entity.getUUID()))
         {
             return;
         }
@@ -1490,15 +1514,14 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         if (closest != null)
         {
             closestMap.remove(entity.getType(), closest);
-            this.usedClientEntityUuids.add(entity.getUUID());
-            this.matchedClientEntities.put(entity.getUUID(), closest);
+            this.matchEntity(entity, closest);
             this.updateMismatchOverlays();
         }
     }
 
     private void onClientEntityRemoved(Entity entity)
     {
-        if (this.checkEntities == false || (this.verificationActive == false && this.finished == false))
+        if (this.isEntityTrackingLive() == false)
         {
             return;
         }
@@ -1510,16 +1533,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             this.usedClientEntityUuids.remove(entity.getUUID());
 
             // The client is told to forget an entity both when it is broken and when the
-            // player merely walks out of its tracking range, and cannot tell which. Only in
-            // the first case is it still somewhere the client could see it
-            if (this.canClientSeeEntityAt(entry.entityType, entry.pos))
-            {
-                this.missingEntitiesPositions.put(entry.entityType, entry);
-            }
-            else
-            {
-                this.unseenEntitiesPositions.put(entry.entityType, entry);
-            }
+            // player merely walks out of its tracking range, and cannot tell which; filing
+            // it decides between missing and unseen on exactly that question
+            this.fileUnmatchedEntity(entry);
 
             this.updateMismatchOverlays();
         }

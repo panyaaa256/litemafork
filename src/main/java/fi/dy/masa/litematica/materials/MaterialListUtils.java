@@ -3,6 +3,7 @@ package fi.dy.masa.litematica.materials;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
@@ -54,32 +55,52 @@ public class MaterialListUtils
                                                                            InclusionType containersInclusionType)
     {
         Player player = Minecraft.getInstance().player;
+        Object2IntOpenHashMap<ItemType> total = onlyTally(entitiesInclusionType, () -> createEntityItemCounts(schematic, subRegions),
+                                                          containersInclusionType, () -> createContainerItemCounts(schematic, subRegions));
 
+        if (total == null)
+        {
+            total = createBlockItemCounts(schematic, subRegions);
+
+            if (entitiesInclusionType != InclusionType.NONE)
+            {
+                addTally(total, null, createEntityItemCounts(schematic, subRegions));
+            }
+
+            if (containersInclusionType != InclusionType.NONE)
+            {
+                addTally(total, null, createContainerItemCounts(schematic, subRegions));
+            }
+        }
+
+        // None of it is built yet, so all of it is missing
+        return buildEntriesFromItemCounts(total, total.clone(), new Object2IntOpenHashMap<>(), player);
+    }
+
+    /**
+     * The tally a list of only the entities or only the container contents is built from,
+     * or null when the list is the usual one of everything.
+     * <p>
+     * The tallies are suppliers because working one out means walking the schematic, and
+     * only the one that is asked for should be walked for.
+     */
+    @Nullable
+    private static Object2IntOpenHashMap<ItemType> onlyTally(InclusionType entitiesInclusionType,
+                                                             Supplier<Object2IntOpenHashMap<ItemType>> entities,
+                                                             InclusionType containersInclusionType,
+                                                             Supplier<Object2IntOpenHashMap<ItemType>> containers)
+    {
         if (entitiesInclusionType == InclusionType.ONLY)
         {
-            Object2IntOpenHashMap<ItemType> entitiesTotal = createEntityItemCounts(schematic, subRegions);
-            return buildEntriesFromItemCounts(entitiesTotal, entitiesTotal.clone(), new Object2IntOpenHashMap<>(), player);
+            return entities.get();
         }
 
         if (containersInclusionType == InclusionType.ONLY)
         {
-            Object2IntOpenHashMap<ItemType> containersTotal = createContainerItemCounts(schematic, subRegions);
-            return buildEntriesFromItemCounts(containersTotal, containersTotal.clone(), new Object2IntOpenHashMap<>(), player);
+            return containers.get();
         }
 
-        Object2IntOpenHashMap<ItemType> total = createBlockItemCounts(schematic, subRegions);
-
-        if (entitiesInclusionType != InclusionType.NONE)
-        {
-            createEntityItemCounts(schematic, subRegions).forEach(total::addTo);
-        }
-
-        if (containersInclusionType != InclusionType.NONE)
-        {
-            createContainerItemCounts(schematic, subRegions).forEach(total::addTo);
-        }
-
-        return buildEntriesFromItemCounts(total, total.clone(), new Object2IntOpenHashMap<>(), player);
+        return null;
     }
 
     /**
@@ -345,16 +366,8 @@ public class MaterialListUtils
             Object2IntOpenHashMap<BlockState> countsMismatch,
             Player player)
     {
-        if (countsTotal.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        MaterialCache cache = MaterialCache.getInstance();
-        Object2IntOpenHashMap<ItemType> itemTypesTotal = convertBlockStatesToItemCounts(countsTotal, cache);
-        Object2IntOpenHashMap<ItemType> itemTypesMissing = convertBlockStatesToItemCounts(countsMissing, cache);
-        Object2IntOpenHashMap<ItemType> itemTypesMismatch = convertBlockStatesToItemCounts(countsMismatch, cache);
-
-        return buildEntriesFromItemCounts(itemTypesTotal, itemTypesMissing, itemTypesMismatch, player);
+        return buildEntriesFromItemCounts(blockItemCounts(countsTotal), blockItemCounts(countsMissing),
+                                          blockItemCounts(countsMismatch), player);
     }
 
     /**
@@ -373,36 +386,27 @@ public class MaterialListUtils
             InclusionType containersInclusionType,
             Player player)
     {
-        if (entitiesInclusionType == InclusionType.ONLY)
+        Object2IntOpenHashMap<ItemType> only = onlyTally(entitiesInclusionType, () -> entitiesTotal,
+                                                         containersInclusionType, () -> containersTotal);
+
+        if (only != null)
         {
-            return buildEntriesFromItemCounts(entitiesTotal, entitiesTotal.clone(), new Object2IntOpenHashMap<>(), player);
+            return buildEntriesFromItemCounts(only, only.clone(), new Object2IntOpenHashMap<>(), player);
         }
 
-        if (containersInclusionType == InclusionType.ONLY)
+        Object2IntOpenHashMap<ItemType> itemTypesTotal = blockItemCounts(countsTotal);
+        Object2IntOpenHashMap<ItemType> itemTypesMissing = blockItemCounts(countsMissing);
+        Object2IntOpenHashMap<ItemType> itemTypesMismatch = blockItemCounts(countsMismatch);
+
+        if (entitiesInclusionType != InclusionType.NONE)
         {
-            return buildEntriesFromItemCounts(containersTotal, containersTotal.clone(), new Object2IntOpenHashMap<>(), player);
+            addTally(itemTypesTotal, itemTypesMissing, entitiesTotal);
         }
 
-        Object2IntOpenHashMap<ItemType> itemTypesTotal;
-        Object2IntOpenHashMap<ItemType> itemTypesMissing;
-        Object2IntOpenHashMap<ItemType> itemTypesMismatch;
-
-        if (countsTotal.isEmpty())
+        if (containersInclusionType != InclusionType.NONE)
         {
-            itemTypesTotal = new Object2IntOpenHashMap<>();
-            itemTypesMissing = new Object2IntOpenHashMap<>();
-            itemTypesMismatch = new Object2IntOpenHashMap<>();
+            addTally(itemTypesTotal, itemTypesMissing, containersTotal);
         }
-        else
-        {
-            MaterialCache cache = MaterialCache.getInstance();
-            itemTypesTotal = convertBlockStatesToItemCounts(countsTotal, cache);
-            itemTypesMissing = convertBlockStatesToItemCounts(countsMissing, cache);
-            itemTypesMismatch = convertBlockStatesToItemCounts(countsMismatch, cache);
-        }
-
-        mergeAsMissing(itemTypesTotal, itemTypesMissing, entitiesTotal, entitiesInclusionType);
-        mergeAsMissing(itemTypesTotal, itemTypesMissing, containersTotal, containersInclusionType);
 
         return buildEntriesFromItemCounts(itemTypesTotal, itemTypesMissing, itemTypesMismatch, player);
     }
@@ -419,50 +423,59 @@ public class MaterialListUtils
             InclusionType containersInclusionType,
             Player player)
     {
-        if (entitiesInclusionType == InclusionType.ONLY)
+        Object2IntOpenHashMap<ItemType> itemTypesTotal = onlyTally(entitiesInclusionType, () -> entitiesTotal,
+                                                                   containersInclusionType, () -> containersTotal);
+
+        if (itemTypesTotal == null)
         {
-            return buildEntriesFromItemCounts(entitiesTotal, new Object2IntOpenHashMap<>(), new Object2IntOpenHashMap<>(), player);
+            itemTypesTotal = blockItemCounts(countsTotal);
+
+            if (entitiesInclusionType != InclusionType.NONE)
+            {
+                addTally(itemTypesTotal, null, entitiesTotal);
+            }
+
+            if (containersInclusionType != InclusionType.NONE)
+            {
+                addTally(itemTypesTotal, null, containersTotal);
+            }
         }
 
-        if (containersInclusionType == InclusionType.ONLY)
-        {
-            return buildEntriesFromItemCounts(containersTotal, new Object2IntOpenHashMap<>(), new Object2IntOpenHashMap<>(), player);
-        }
-
-        Object2IntOpenHashMap<ItemType> itemTypesTotal = countsTotal.isEmpty()
-                ? new Object2IntOpenHashMap<>()
-                : convertBlockStatesToItemCounts(countsTotal, MaterialCache.getInstance());
-
-        if (entitiesInclusionType != InclusionType.NONE)
-        {
-            entitiesTotal.forEach(itemTypesTotal::addTo);
-        }
-
-        if (containersInclusionType != InclusionType.NONE)
-        {
-            containersTotal.forEach(itemTypesTotal::addTo);
-        }
-
+        // There is nothing to compare an area against, so nothing of it is missing
         Object2IntOpenHashMap<ItemType> empty = new Object2IntOpenHashMap<>();
+
         return buildEntriesFromItemCounts(itemTypesTotal, empty, empty, player);
     }
 
-    private static void mergeAsMissing(Object2IntOpenHashMap<ItemType> total,
-                                        Object2IntOpenHashMap<ItemType> missing,
-                                        Object2IntOpenHashMap<ItemType> extra,
-                                        InclusionType inclusionType)
+    /**
+     * Adds an entity or container tally to the list it belongs to.
+     *
+     * @param missing the missing column, when the list has one: entities and containers
+     *                are counted from the schematic, so there is nothing in the world to
+     *                match them against and all of them count as missing
+     */
+    private static void addTally(Object2IntOpenHashMap<ItemType> total,
+                                 @Nullable Object2IntOpenHashMap<ItemType> missing,
+                                 Object2IntOpenHashMap<ItemType> extra)
     {
-        if (inclusionType == InclusionType.NONE)
-        {
-            return;
-        }
-
         for (ItemType itemType : extra.keySet())
         {
             int count = extra.getInt(itemType);
+
             total.addTo(itemType, count);
-            missing.addTo(itemType, count);
+
+            if (missing != null)
+            {
+                missing.addTo(itemType, count);
+            }
         }
+    }
+
+    /** The items a block state tally costs, or an empty tally when there are no blocks. */
+    private static Object2IntOpenHashMap<ItemType> blockItemCounts(Object2IntOpenHashMap<BlockState> counts)
+    {
+        return counts.isEmpty() ? new Object2IntOpenHashMap<>()
+                                : convertBlockStatesToItemCounts(counts, MaterialCache.getInstance());
     }
 
     private static Object2IntOpenHashMap<ItemType> convertBlockStatesToItemCounts(

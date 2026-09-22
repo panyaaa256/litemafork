@@ -66,22 +66,15 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
         this.verifier = guiSchematicVerifier.getPlacement().getSchematicVerifier();
         this.isOdd = isOdd;
 
-        // Main header
-        if (entry.header1 != null && entry.header2 != null)
+        // A row is one of three things: a header, a missing entity, or a mismatch. Only the
+        // main header names a second column, and so is the only one with a count heading
+        this.header1 = entry.header1;
+        this.header2 = entry.header2;
+        this.header3 = entry.header2 != null ? GuiBase.TXT_BOLD + StringUtils.translate(HEADER_COUNT) + GuiBase.TXT_RST : null;
+
+        // A header or a category title, which stands for no entry of its own
+        if (entry.header1 != null)
         {
-            this.header1 = entry.header1;
-            this.header2 = entry.header2;
-            this.header3 = GuiBase.TXT_BOLD + StringUtils.translate(HEADER_COUNT) + GuiBase.TXT_RST;
-            this.mismatchInfo = null;
-            this.count = 0;
-            this.buttonIgnore = null;
-        }
-        // Category title
-        else if (entry.header1 != null)
-        {
-            this.header1 = entry.header1;
-            this.header2 = null;
-            this.header3 = null;
             this.mismatchInfo = null;
             this.count = 0;
             this.buttonIgnore = null;
@@ -89,9 +82,6 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
         // Missing entity entry
         else if (entry.entityMismatch != null)
         {
-            this.header1 = null;
-            this.header2 = null;
-            this.header3 = null;
             this.mismatchInfo = null;
             this.count = entry.entityMismatch.count;
             this.buttonIgnore = null;
@@ -99,20 +89,12 @@ public class WidgetSchematicVerificationResult extends WidgetListEntrySortable<B
         // Mismatch entry
         else
         {
-            this.header1 = null;
-            this.header2 = null;
-            this.header3 = null;
             this.mismatchInfo = new BlockMismatchInfo(entry.blockMismatch.stateExpected(), entry.blockMismatch.stateFound());
             this.count = entry.blockMismatch.count();
-
-            if (entry.mismatchType != MismatchType.CORRECT_STATE)
-            {
-                this.buttonIgnore = this.createButton(this.x + this.width, y + 1, ButtonListener.ButtonType.IGNORE_MISMATCH);
-            }
-            else
-            {
-                this.buttonIgnore = null;
-            }
+            // A correct state is not something to ignore
+            this.buttonIgnore = entry.mismatchType != MismatchType.CORRECT_STATE
+                              ? this.createButton(this.x + this.width, y + 1, ButtonListener.ButtonType.IGNORE_MISMATCH)
+                              : null;
         }
     }
 

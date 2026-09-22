@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.Consumer;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -47,12 +49,10 @@ public class VerifierListRegistry
 {
     private final ListType listType;
     private final BlockAndTagSet listedBlocks = new BlockAndTagSet();
-    private final Map<Block, Set<String>> listedPropertiesPerBlock = new HashMap<>();
-    private final List<Map.Entry<TagKey<Block>, Set<String>>> listedPropertiesPerTag = new ArrayList<>();
-    private final Set<String> globalListedProperties = new HashSet<>();
-    private final Map<Block, List<Map<String, PropertyCondition>>> stateMatchersPerBlock = new HashMap<>();
-    private final List<Map.Entry<TagKey<Block>, Map<String, PropertyCondition>>> stateMatchersPerTag = new ArrayList<>();
-    private final List<Map<String, PropertyCondition>> globalStateMatchers = new ArrayList<>();
+    private final Scoped<Set<String>> listedProperties = new Scoped<>();
+    private final Scoped<Map<String, PropertyCondition>> stateMatchers = new Scoped<>();
+    /** Worked out per block on demand, since shouldTreatAsCorrect() asks per position. */
+    private final Map<Block, Set<String>> listedPropertiesForBlock = new HashMap<>();
 
     /** One 'key=value' or 'key!=value' condition of a state matcher; negated = true for '!=' */
     private record PropertyCondition(String value, boolean negated) {}
@@ -152,12 +152,12 @@ public class VerifierListRegistry
             {
                 if (propertiesFinal != null)
                 {
-                    this.globalListedProperties.addAll(propertiesFinal);
+                    this.listedProperties.addGlobal(propertiesFinal);
                 }
 
                 if (conditionsFinal != null)
                 {
-                    this.globalStateMatchers.add(conditionsFinal);
+                    this.stateMatchers.addGlobal(conditionsFinal);
                 }
             }
             else if (propertiesFinal == null && conditionsFinal == null)
@@ -171,12 +171,12 @@ public class VerifierListRegistry
                 tag.ifPresent((t) -> {
                     if (propertiesFinal != null)
                     {
-                        this.listedPropertiesPerTag.add(Map.entry(t, propertiesFinal));
+                        this.listedProperties.addForTag(t, propertiesFinal);
                     }
 
                     if (conditionsFinal != null)
                     {
-                        this.stateMatchersPerTag.add(Map.entry(t, conditionsFinal));
+                        this.stateMatchers.addForTag(t, conditionsFinal);
                     }
                 });
             }
@@ -186,15 +186,12 @@ public class VerifierListRegistry
                 block.ifPresent((b) -> {
                     if (propertiesFinal != null)
                     {
-                        this.listedPropertiesPerBlock.merge(b, propertiesFinal, (oldSet, newSet) -> {
-                            oldSet.addAll(newSet);
-                            return oldSet;
-                        });
+                        this.listedProperties.addForBlock(b, propertiesFinal);
                     }
 
                     if (conditionsFinal != null)
                     {
-                        this.stateMatchersPerBlock.computeIfAbsent(b, (k) -> new ArrayList<>()).add(conditionsFinal);
+                        this.stateMatchers.addForBlock(b, conditionsFinal);
                     }
                 });
             }
@@ -280,30 +277,18 @@ public class VerifierListRegistry
 
     private boolean isStateWhitelisted(BlockState state)
     {
-        Block block = state.getBlock();
-
-        if (this.isBlockListedWithoutProperties(block) || this.listedPropertiesPerBlock.containsKey(block))
-        {
-            return true;
-        }
-
-        for (Map.Entry<TagKey<Block>, Set<String>> entry : this.listedPropertiesPerTag)
-        {
-            if (state.is(entry.getKey()))
-            {
-                return true;
-            }
-        }
-
-        return this.matchesAnyStateMatcher(state);
+        // A global property list says nothing about which blocks are verified, only about
+        // which of their properties are compared, so it whitelists nothing by itself
+        return this.isBlockListedWithoutProperties(state.getBlock()) ||
+               this.listedProperties.hasNamedEntryFor(state) ||
+               this.matchesAnyStateMatcher(state);
     }
 
     private boolean hasRestrictingEntries()
     {
         return this.listedBlocks.isEmpty() == false ||
-               this.listedPropertiesPerBlock.isEmpty() == false || this.listedPropertiesPerTag.isEmpty() == false ||
-               this.stateMatchersPerBlock.isEmpty() == false || this.stateMatchersPerTag.isEmpty() == false ||
-               this.globalStateMatchers.isEmpty() == false;
+               this.listedProperties.hasNamedEntries() ||
+               this.stateMatchers.isEmpty() == false;
     }
 
     private boolean isBlockListedWithoutProperties(Block block)
@@ -313,36 +298,7 @@ public class VerifierListRegistry
 
     private boolean matchesAnyStateMatcher(BlockState state)
     {
-        List<Map<String, PropertyCondition>> matchers = this.stateMatchersPerBlock.get(state.getBlock());
-
-        if (matchers != null)
-        {
-            for (Map<String, PropertyCondition> conditions : matchers)
-            {
-                if (stateMatches(state, conditions))
-                {
-                    return true;
-                }
-            }
-        }
-
-        for (Map.Entry<TagKey<Block>, Map<String, PropertyCondition>> entry : this.stateMatchersPerTag)
-        {
-            if (state.is(entry.getKey()) && stateMatches(state, entry.getValue()))
-            {
-                return true;
-            }
-        }
-
-        for (Map<String, PropertyCondition> conditions : this.globalStateMatchers)
-        {
-            if (stateMatches(state, conditions))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return this.stateMatchers.anyMatch(state, VerifierListRegistry::stateMatches);
     }
 
     private static boolean stateMatches(BlockState state, Map<String, PropertyCondition> conditions)
@@ -374,30 +330,117 @@ public class VerifierListRegistry
 
     private Set<String> getListedProperties(Block block)
     {
-        Set<String> properties = this.listedPropertiesPerBlock.get(block);
+        return this.listedPropertiesForBlock.computeIfAbsent(block, (b) -> {
+            Set<String> combined = new HashSet<>();
 
-        if (this.globalListedProperties.isEmpty() && this.listedPropertiesPerTag.isEmpty())
+            this.listedProperties.collectMatching(b.defaultBlockState(), combined::addAll);
+
+            return combined.isEmpty() ? Collections.emptySet() : combined;
+        });
+    }
+
+    /**
+     * What the list says about one block, one block tag, or every block. The three scopes
+     * answer the same questions, and only the whitelist tells them apart: a global entry
+     * lists properties, and never makes a block one of the verified ones.
+     */
+    private static class Scoped<T>
+    {
+        private final Map<Block, List<T>> perBlock = new HashMap<>();
+        private final List<Map.Entry<TagKey<Block>, T>> perTag = new ArrayList<>();
+        private final List<T> global = new ArrayList<>();
+
+        private void addForBlock(Block block, T value)
         {
-            return properties != null ? properties : Collections.emptySet();
+            this.perBlock.computeIfAbsent(block, (k) -> new ArrayList<>()).add(value);
         }
 
-        Set<String> combined = new HashSet<>(this.globalListedProperties);
-
-        if (properties != null)
+        private void addForTag(TagKey<Block> tag, T value)
         {
-            combined.addAll(properties);
+            this.perTag.add(Map.entry(tag, value));
         }
 
-        BlockState defaultState = block.defaultBlockState();
-
-        for (Map.Entry<TagKey<Block>, Set<String>> entry : this.listedPropertiesPerTag)
+        private void addGlobal(T value)
         {
-            if (defaultState.is(entry.getKey()))
+            this.global.add(value);
+        }
+
+        private boolean isEmpty()
+        {
+            return this.hasNamedEntries() == false && this.global.isEmpty();
+        }
+
+        /** True when anything at all is listed for a named block or tag. */
+        private boolean hasNamedEntries()
+        {
+            return this.perBlock.isEmpty() == false || this.perTag.isEmpty() == false;
+        }
+
+        /** True when a named block or tag entry - not a global one - covers this state. */
+        private boolean hasNamedEntryFor(BlockState state)
+        {
+            if (this.perBlock.containsKey(state.getBlock()))
             {
-                combined.addAll(entry.getValue());
+                return true;
+            }
+
+            for (Map.Entry<TagKey<Block>, T> entry : this.perTag)
+            {
+                if (state.is(entry.getKey()))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /**
+         * True when anything covering this state satisfies the test. Asked for every
+         * position of a verification, so it walks the scopes rather than collecting them.
+         */
+        private boolean anyMatch(BlockState state, BiPredicate<BlockState, T> predicate)
+        {
+            for (T value : this.global)
+            {
+                if (predicate.test(state, value))
+                {
+                    return true;
+                }
+            }
+
+            for (T value : this.perBlock.getOrDefault(state.getBlock(), List.of()))
+            {
+                if (predicate.test(state, value))
+                {
+                    return true;
+                }
+            }
+
+            for (Map.Entry<TagKey<Block>, T> entry : this.perTag)
+            {
+                if (state.is(entry.getKey()) && predicate.test(state, entry.getValue()))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /** Hands everything covering this state, from all three scopes, to the consumer. */
+        private void collectMatching(BlockState state, Consumer<T> consumer)
+        {
+            this.global.forEach(consumer);
+            this.perBlock.getOrDefault(state.getBlock(), List.<T>of()).forEach(consumer);
+
+            for (Map.Entry<TagKey<Block>, T> entry : this.perTag)
+            {
+                if (state.is(entry.getKey()))
+                {
+                    consumer.accept(entry.getValue());
+                }
             }
         }
-
-        return combined;
     }
 }

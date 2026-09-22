@@ -430,60 +430,72 @@ public class OverlayRenderer
     {
         Color4f sideColor = Configs.Colors.UNLOADED_CHUNKS_HIGHLIGHT_COLOR.getColor();
         Color4f lineColor = new Color4f(sideColor.r, sideColor.g, sideColor.b, 1f);
-        float y0 = (float) (minY - cameraPos.y);
-        float y1 = (float) (maxY + 1 - cameraPos.y);
-        float lineWidth = 1.5f;
+        final float y0 = (float) (minY - cameraPos.y);
+        final float y1 = (float) (maxY + 1 - cameraPos.y);
+        final float lineWidth = 1.5f;
 
         profiler.push("side_quads");
         RenderContext ctx = new RenderContext(() -> "litematica:unloaded_chunks/side_quads", MaLiLibPipelines.POSITION_COLOR_TRANSLUCENT_NO_DEPTH_NO_CULL, 0);
-        BufferBuilder buffer = ctx.getBuilder();
+        BufferBuilder quads = ctx.getBuilder();
 
-        for (ChunkPos pos : chunks)
-        {
-            float x0 = (float) (pos.getMinBlockX() - cameraPos.x);
-            float z0 = (float) (pos.getMinBlockZ() - cameraPos.z);
-            fi.dy.masa.malilib.render.RenderUtils.drawBoxAllSidesBatchedQuads(x0, y0, z0, x0 + 16, y1, z0 + 16, sideColor, buffer);
-        }
-
-        try
-        {
-            MeshData meshData = buffer.build();
-
-            if (meshData != null)
-            {
-                ctx.draw(meshData, false, false);
-                meshData.close();
-            }
-
-            ctx.reset();
-        }
-        catch (Exception ignored) { }
+        batchChunkBoxes(chunks, cameraPos, (x0, z0) ->
+                fi.dy.masa.malilib.render.RenderUtils.drawBoxAllSidesBatchedQuads(x0, y0, z0, x0 + 16, y1, z0 + 16, sideColor, quads));
+        drawBatched(ctx, quads, false, false);
 
         profiler.popPush("outlines");
-        buffer = ctx.start(() -> "litematica:unloaded_chunks/outlines", MaLiLibPipelines.DEBUG_LINES_MASA_SIMPLE_NO_DEPTH_NO_CULL, 0);
+        BufferBuilder lines = ctx.start(() -> "litematica:unloaded_chunks/outlines", MaLiLibPipelines.DEBUG_LINES_MASA_SIMPLE_NO_DEPTH_NO_CULL, 0);
 
+        batchChunkBoxes(chunks, cameraPos, (x0, z0) ->
+                fi.dy.masa.malilib.render.RenderUtils.drawBoxAllEdgesBatchedLines(x0, y0, z0, x0 + 16, y1, z0 + 16, lineColor, lineWidth, lines));
+        drawBatched(ctx, lines, true, true);
+
+        profiler.pop();
+    }
+
+    /** Hands each chunk's north west corner, relative to the camera, to the batcher. */
+    private static void batchChunkBoxes(List<ChunkPos> chunks, Vec3 cameraPos, ChunkBoxBatcher batcher)
+    {
         for (ChunkPos pos : chunks)
         {
-            float x0 = (float) (pos.getMinBlockX() - cameraPos.x);
-            float z0 = (float) (pos.getMinBlockZ() - cameraPos.z);
-            fi.dy.masa.malilib.render.RenderUtils.drawBoxAllEdgesBatchedLines(x0, y0, z0, x0 + 16, y1, z0 + 16, lineColor, lineWidth, buffer);
+            batcher.batch((float) (pos.getMinBlockX() - cameraPos.x), (float) (pos.getMinBlockZ() - cameraPos.z));
         }
+    }
 
+    /**
+     * Draws what has been batched into the buffer, and keeps a failure to itself: a
+     * highlight that cannot be drawn is not worth interrupting the frame for.
+     *
+     * @param last closes the context rather than readying it for the next pass
+     */
+    private static void drawBatched(RenderContext ctx, BufferBuilder buffer, boolean setColor, boolean last)
+    {
         try
         {
             MeshData meshData = buffer.build();
 
             if (meshData != null)
             {
-                ctx.draw(meshData, false, true);
+                ctx.draw(meshData, false, setColor);
                 meshData.close();
             }
 
-            ctx.close();
+            if (last)
+            {
+                ctx.close();
+            }
+            else
+            {
+                ctx.reset();
+            }
         }
         catch (Exception ignored) { }
+    }
 
-        profiler.pop();
+    /** One chunk's box, at the given corner. */
+    @FunctionalInterface
+    private interface ChunkBoxBatcher
+    {
+        void batch(float x0, float z0);
     }
 
     public void renderSchematicVerifierMismatches(ProfilerFiller profiler)
