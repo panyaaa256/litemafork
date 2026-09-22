@@ -3,11 +3,13 @@ package fi.dy.masa.litematica.materials;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -247,19 +249,37 @@ public class MaterialListUtils
     public static Object2IntOpenHashMap<ItemType> createContainerItemCounts(LitematicaSchematic schematic, Collection<String> subRegions)
     {
         Object2IntOpenHashMap<ItemType> containersTotal = new Object2IntOpenHashMap<>();
-        for (String regionName : subRegions) {
-            Collection<CompoundData> containersList = schematic.getBlockEntityMapForRegion(regionName).values();
-            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
-            ListData listTag = new ListData();
-            for (CompoundData containerTag : containersList) {
-                addAllItems(listTag, containerTag);
+
+        for (String regionName : subRegions)
+        {
+            // Both are null for a region this schematic does not have, which a region name
+            // that came from somewhere else - a placement, say - can name
+            Map<BlockPos, CompoundData> containers = schematic.getBlockEntityMapForRegion(regionName);
+            List<EntityInfo> entities = schematic.getEntityListForRegion(regionName);
+            ListData items = new ListData();
+
+            if (containers != null)
+            {
+                for (CompoundData containerTag : containers.values())
+                {
+                    addAllItems(items, containerTag);
+                }
             }
-            for (EntityInfo entityInfo : entitiesList) {
-                addAllItems(listTag, entityInfo.nbt());
+
+            if (entities != null)
+            {
+                for (EntityInfo entityInfo : entities)
+                {
+                    addAllItems(items, entityInfo.nbt());
+                }
             }
-            for (int i = 0; i < listTag.size(); i++) {
-                CompoundData itemTag = listTag.getCompoundAt(i);
-                if (itemTag != null) {
+
+            for (int i = 0; i < items.size(); i++)
+            {
+                CompoundData itemTag = items.getCompoundAt(i);
+
+                if (itemTag != null)
+                {
                     accumulateContainerItem(itemTag, containersTotal);
                 }
             }

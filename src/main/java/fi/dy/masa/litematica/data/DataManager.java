@@ -40,6 +40,7 @@ import fi.dy.masa.litematica.selection.AreaSelectionSimple;
 import fi.dy.masa.litematica.selection.SelectionManager;
 import fi.dy.masa.litematica.tool.ToolMode;
 import fi.dy.masa.litematica.tool.ToolModeData;
+import fi.dy.masa.litematica.util.EntityUtils;
 import fi.dy.masa.litematica.util.SchematicWorldRefresher;
 import fi.dy.masa.litematica.util.ToBooleanFunction;
 
@@ -389,6 +390,8 @@ public class DataManager implements IDirectoryCache
     {
         TaskScheduler.getInstanceClient().clearTasks();
         SchematicVerifier.clearActiveVerifiers();
+        // Worked out from the world that is being left behind
+        EntityUtils.clearEntityItemCache();
 
         getSchematicPlacementManager().clear();
         getSchematicProjectsManager().clear();
