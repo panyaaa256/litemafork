@@ -418,6 +418,7 @@
     "litematica.config.hotkeys.name.toggleAreaSelectionBoxesRendering": "領域選択ボックスの描画を切り替え",
     "litematica.config.hotkeys.name.toggleInfoOverlayRendering": "ブロック情報オーバーレイの表示を切り替え",
     "litematica.config.hotkeys.name.toggleMaterialListInfo": "建材リストHUDの表示を切り替え",
+    "litematica.config.hotkeys.name.toggleMaterialListType": "建材リストの対象を切り替え",
     "litematica.config.hotkeys.name.toggleOverlayOutlineRendering": "図面オーバーレイの輪郭の描画を切り替え",
     "litematica.config.hotkeys.name.toggleOverlayRendering": "図面オーバーレイの描画を切り替え",
     "litematica.config.hotkeys.name.toggleOverlaySideRendering": "図面オーバーレイの面の描画を切り替え",
