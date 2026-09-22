@@ -34,7 +34,6 @@ public class ContentsMismatchInfo
 
     private final Panel left;
     private final Panel right;
-    private final String posLine;
     private final String legend;
     private final int totalWidth;
     private final int totalHeight;
@@ -54,25 +53,22 @@ public class ContentsMismatchInfo
             return null;
         }
 
-        return new ContentsMismatchInfo(mismatch,
-                                        new Panel(expected, mismatch.getExpectedData(), mismatch.getDifferingExpectedSlots(slotExact, strict)),
+        return new ContentsMismatchInfo(new Panel(expected, mismatch.getExpectedData(), mismatch.getDifferingExpectedSlots(slotExact, strict)),
                                         new Panel(found, mismatch.getFoundData(), mismatch.getDifferingFoundSlots(slotExact, strict)),
                                         slotExact);
     }
 
-    private ContentsMismatchInfo(ContentsMismatch mismatch, Panel left, Panel right, boolean slotExact)
+    private ContentsMismatchInfo(Panel left, Panel right, boolean slotExact)
     {
         this.left = left;
         this.right = right;
-        this.posLine = GuiBase.TXT_GRAY + mismatch.getPos().toShortString() + GuiBase.TXT_RST;
         this.legend = StringUtils.translate(slotExact ? "litematica.gui.label.schematic_verifier.contents.legend_slots"
                                                       : "litematica.gui.label.schematic_verifier.contents.legend");
 
         int panelsWidth = left.width + GAP + right.width;
-        int textWidth = Math.max(StringUtils.getStringWidth(this.posLine), StringUtils.getStringWidth(this.legend));
 
-        this.totalWidth = Math.max(panelsWidth, textWidth) + PADDING * 2;
-        this.totalHeight = PADDING * 2 + LINE_HEIGHT * 3 + Math.max(left.height, right.height);
+        this.totalWidth = Math.max(panelsWidth, StringUtils.getStringWidth(this.legend)) + PADDING * 2;
+        this.totalHeight = PADDING * 2 + LINE_HEIGHT * 2 + Math.max(left.height, right.height);
     }
 
     public int getTotalWidth()
@@ -112,9 +108,6 @@ public class ContentsMismatchInfo
         int xLeft = x + PADDING;
         int xRight = xLeft + this.left.width + GAP;
         int yText = y + PADDING;
-
-        ctx.drawString(ctx.fontRenderer(), this.posLine, xLeft, yText, 0xFFFFFFFF, false);
-        yText += LINE_HEIGHT;
 
         String pre = GuiBase.TXT_WHITE + GuiBase.TXT_BOLD;
         ctx.drawString(ctx.fontRenderer(), pre + StringUtils.translate("litematica.gui.label.schematic_verifier.expected") + GuiBase.TXT_RST, xLeft, yText, 0xFFFFFFFF, false);

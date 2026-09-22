@@ -75,11 +75,6 @@ public class ContentsMismatch
         }
     }
 
-    public BlockPos getPos()
-    {
-        return this.pos;
-    }
-
     public CompoundData getExpectedData()
     {
         return this.expectedData;
