@@ -529,6 +529,7 @@ public class KeyCallbacks
             else if (key == Hotkeys.TOGGLE_MATERIAL_LIST_INFO.getKeybind())
             {
                 MaterialListBase materialList = DataManager.getMaterialList();
+
                 if (materialList == null)
                 {
                     SchematicPlacement schematicPlacement = DataManager.getSchematicPlacementManager().getSelectedSchematicPlacement();
@@ -544,9 +545,12 @@ public class KeyCallbacks
                         InfoUtils.showGuiOrInGameMessage(MessageType.ERROR, "litematica.message.error.no_placement_selected");
                     }
                 }
-                if (materialList != null) {
+
+                if (materialList != null)
+                {
                     MaterialListHudRenderer renderer = materialList.getHudRenderer();
                     renderer.toggleShouldRender();
+
                     if (renderer.getShouldRenderCustom())
                     {
                         InfoHud.getInstance().addInfoHudRenderer(renderer, true);
@@ -556,17 +560,20 @@ public class KeyCallbacks
                         InfoHud.getInstance().removeInfoHudRenderersOfType(renderer.getClass(), true);
                     }
                 }
+
                 return true;
             }
             else if (key == Hotkeys.TOGGLE_MATERIAL_LIST_TYPE.getKeybind())
             {
                 MaterialListBase materialList = DataManager.getMaterialList();
-                if (materialList == null) {
-                    return true;
+
+                if (materialList != null)
+                {
+                    BlockInfoListType type = materialList.getMaterialListType();
+                    materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);
+                    materialList.reCreateMaterialList();
                 }
-                BlockInfoListType type = materialList.getMaterialListType();
-                materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);
-                materialList.reCreateMaterialList();
+
                 return true;
             }
             else if (key == Hotkeys.CLONE_SELECTION.getKeybind())

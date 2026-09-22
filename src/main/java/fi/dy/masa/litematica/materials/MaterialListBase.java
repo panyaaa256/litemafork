@@ -274,14 +274,20 @@ public abstract class MaterialListBase implements IMaterialList
         return this.countMismatched;
     }
 
+    /** The upstream form: changes the type without telling the player about it. */
+    public void setMaterialListType(BlockInfoListType type)
+    {
+        this.setMaterialListType(type, false);
+    }
+
     public void setMaterialListType(BlockInfoListType type, boolean printMessage)
     {
         this.materialListType = type;
-        if (printMessage) {
-            String val = GuiBase.TXT_GREEN + type.getDisplayName();
-            InfoUtils.printActionbarMessage("malilib.message.set_layer_mode_to", val);
-        }
 
+        if (printMessage)
+        {
+            InfoUtils.printActionbarMessage("malilib.message.set_layer_mode_to", GuiBase.TXT_GREEN + type.getDisplayName());
+        }
     }
 
     public void setEntitiesInclusionType(InclusionType type)
@@ -311,7 +317,7 @@ public abstract class MaterialListBase implements IMaterialList
     {
         if (JsonUtils.hasString(obj, "type"))
         {
-            this.setMaterialListType(BlockInfoListType.fromStringStatic(JsonUtils.getString(obj, "type")), false);
+            this.setMaterialListType(BlockInfoListType.fromStringStatic(JsonUtils.getString(obj, "type")));
         }
 
         if (JsonUtils.hasString(obj, "sort_criteria"))

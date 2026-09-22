@@ -164,9 +164,23 @@ public class MaterialListUtils
         return list;
     }
 
-    public static List<MaterialListEntry> createBlocksList(LitematicaSchematic schematic)
+    /**
+     * The material list of a whole schematic, blocks only.
+     * <p>
+     * This and the sub region form below are the entry points upstream has, kept under
+     * their upstream names so that anything written against Litematica still calls them;
+     * what this fork added is the inclusion types, which they leave at
+     * {@link InclusionType#NONE}.
+     */
+    public static List<MaterialListEntry> createMaterialListFor(LitematicaSchematic schematic)
     {
-        return createMaterialListForSchematic(schematic, schematic.getAreas().keySet(), InclusionType.NONE, InclusionType.NONE);
+        return createMaterialListFor(schematic, schematic.getAreas().keySet());
+    }
+
+    /** The material list of the given sub regions of a schematic, blocks only. */
+    public static List<MaterialListEntry> createMaterialListFor(LitematicaSchematic schematic, Collection<String> subRegions)
+    {
+        return createMaterialListForSchematic(schematic, subRegions, InclusionType.NONE, InclusionType.NONE);
     }
 
     public static Object2IntOpenHashMap<ItemType> createBlockItemCounts(LitematicaSchematic schematic, Collection<String> subRegions)
@@ -206,17 +220,25 @@ public class MaterialListUtils
     {
         Object2IntOpenHashMap<ItemType> entitiesTotal = new Object2IntOpenHashMap<>();
 
-        for (String regionName : subRegions) {
-           List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
-           if (entitiesList != null) {
-               for (EntityInfo entityInfo : entitiesList) {
-                   EntityType<?> type = EntityUtils.getEntityTypeById(entityInfo.nbt().getString("id"));
-                   ItemStack stack = type != null ? EntityUtils.getEntityItem(type) : ItemStack.EMPTY;
-                   if (!stack.isEmpty()) {
-                       entitiesTotal.addTo(new ItemType(stack, false), 1);
-                   }
-               }
-           }
+        for (String regionName : subRegions)
+        {
+            List<EntityInfo> entitiesList = schematic.getEntityListForRegion(regionName);
+
+            if (entitiesList == null)
+            {
+                continue;
+            }
+
+            for (EntityInfo entityInfo : entitiesList)
+            {
+                EntityType<?> type = EntityUtils.getEntityTypeById(entityInfo.nbt().getString("id"));
+                ItemStack stack = type != null ? EntityUtils.getEntityItem(type) : ItemStack.EMPTY;
+
+                if (stack.isEmpty() == false)
+                {
+                    entitiesTotal.addTo(new ItemType(stack, false), 1);
+                }
+            }
         }
 
         return entitiesTotal;
@@ -257,19 +279,23 @@ public class MaterialListUtils
 
         CompoundData components = itemTag.getCompound("components");
 
-        if (components == null) {
+        if (components == null)
+        {
             return;
         }
 
         ListData shulkerItems = components.getList("minecraft:container");
 
-        for (int i = 0; shulkerItems != null && i < shulkerItems.size(); i++) {
+        for (int i = 0; shulkerItems != null && i < shulkerItems.size(); i++)
+        {
             CompoundData slotCompound = shulkerItems.getCompoundAt(i);
 
-            if (slotCompound != null) {
+            if (slotCompound != null)
+            {
                 CompoundData inner = slotCompound.getCompound("item");
 
-                if (inner != null) {
+                if (inner != null)
+                {
                     addItemTagCount(inner, containersTotal);
                 }
             }
@@ -281,7 +307,8 @@ public class MaterialListUtils
     {
         ListData items = tag != null ? tag.getList("Items") : null;
 
-        if (items != null) {
+        if (items != null)
+        {
             out.addAll(items);
         }
     }
@@ -355,6 +382,16 @@ public class MaterialListUtils
             }
         }
         return list;
+    }
+
+    /** The upstream name of {@link #buildEntriesFromBlockCounts}. */
+    public static List<MaterialListEntry> getMaterialList(
+            Object2IntOpenHashMap<BlockState> countsTotal,
+            Object2IntOpenHashMap<BlockState> countsMissing,
+            Object2IntOpenHashMap<BlockState> countsMismatch,
+            Player player)
+    {
+        return buildEntriesFromBlockCounts(countsTotal, countsMissing, countsMismatch, player);
     }
 
     /**
