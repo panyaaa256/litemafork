@@ -132,6 +132,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private boolean serverMode;
     /** Captured when a verification starts, like the verifier lists. */
     private boolean checkEntities;
+    /** Captured the same way; only a server run can compare contents, and only if asked to. */
+    private boolean checkContents;
     /** How the server compared the contents, so that the same differences get pointed out. */
     private boolean contentsSlotExact;
     private boolean contentsStrict;
@@ -319,6 +321,15 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public boolean isCheckingEntities()
     {
         return this.checkEntities;
+    }
+
+    /**
+     * Whether the current verification compares container contents at all. The server
+     * still has the last word on it (its verify_nbt), so this only says it was asked for.
+     */
+    public boolean isCheckingContents()
+    {
+        return this.checkContents;
     }
 
     public int getCorrectStatesCount()
@@ -535,12 +546,14 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.setCompletionListener(completionListener);
 
         this.serverMode = true;
+        this.checkContents = Configs.Generic.VERIFIER_CHECK_CONTENTS.getBooleanValue();
         this.verificationStarted = true;
         this.verificationActive = true;
 
         if (ServerVerifySession.getInstance().start(this, schematicPlacement) == false)
         {
             this.serverMode = false;
+            this.checkContents = false;
             this.verificationStarted = false;
             this.verificationActive = false;
             return;
@@ -805,6 +818,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.verificationStarted = false;
         this.serverMode = false;
         this.checkEntities = false;
+        this.checkContents = false;
         this.serverChunksDone = 0;
         this.serverChunksTotal = 0;
         this.serverUnreadableChunks = 0;

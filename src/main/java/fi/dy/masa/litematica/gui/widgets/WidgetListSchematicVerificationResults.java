@@ -124,6 +124,14 @@ public class WidgetListSchematicVerificationResults extends WidgetListBase<Block
 
     private void addEntriesForType(MismatchType type)
     {
+        // Contents are only compared when a server run was asked to, so a run that did not
+        // check them has nothing to list, not even a header
+        if (type == MismatchType.WRONG_NBT &&
+            this.guiSchematicVerifier.getPlacement().getSchematicVerifier().isCheckingContents() == false)
+        {
+            return;
+        }
+
         String title = type.getFormattingCode() + type.getDisplayname() + TXT_RST;
         this.listContents.add(new BlockMismatchEntry(type, title));
         List<BlockMismatch> list;
