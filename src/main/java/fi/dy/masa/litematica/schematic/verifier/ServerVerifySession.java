@@ -5,6 +5,7 @@ import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.block.state.BlockState;
 
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -16,6 +17,7 @@ import fi.dy.masa.malilib.util.data.tag.CompoundData;
 import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.config.Configs;
+import fi.dy.masa.litematica.data.EntityDataManager;
 import fi.dy.masa.litematica.network.task.ServerTaskSessionBase;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 
@@ -86,10 +88,23 @@ public class ServerVerifySession extends ServerTaskSessionBase
 		CompoundData nbt = placement.toData(true);
 		// Off unless asked for; the server's verify_nbt still decides whether it is allowed
 		nbt.putBoolean("VerifyNbt", Configs.Generic.VERIFIER_CHECK_CONTENTS.getBooleanValue());
+		// The same rules and tolerance as a local run, so that both find the same entities missing
+		nbt.putBoolean("VerifyEntities", isCheckingEntities());
+		nbt.putDouble("EntityTolerance", Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue());
 
 		Litematica.debugLog("ServerVerifySession: requesting verification of '{}' (session {})", placement.getName(), this.sessionId);
 
 		return this.send(nbt);
+	}
+
+	/**
+	 * Whether a server run checks entities: when they are checked locally too, and the server
+	 * is new enough to. An older Servux has no entity check, and would ignore the request.
+	 */
+	public static boolean isCheckingEntities()
+	{
+		return Configs.Generic.VERIFIER_CHECK_ENTITIES.getBooleanValue() &&
+		       EntityDataManager.getInstance().hasServuxFeature("verify_entities");
 	}
 
 	@Override
@@ -192,6 +207,20 @@ public class ServerVerifySession extends ServerTaskSessionBase
 				this.verifier.addServerContents(BlockPos.of(entry.getLong("Pos")),
 				                                entry.getCompound("Expected"),
 				                                entry.getCompound("Found"));
+			}
+		}
+
+		// The schematic's entities that are not in the world; these come after every block pair
+		ListData entities = nbt.getList("Entities");
+
+		for (int i = 0; entities != null && i < entities.size(); i++)
+		{
+			CompoundData entry = entities.getCompoundAt(i);
+
+			if (entry != null && entry.contains("Type", Constants.NBT.TAG_STRING))
+			{
+				this.verifier.addServerMissingEntity(entry.getString("Type"),
+				                                     new Vec3(entry.getDouble("X"), entry.getDouble("Y"), entry.getDouble("Z")));
 			}
 		}
 
