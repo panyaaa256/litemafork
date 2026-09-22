@@ -35,44 +35,20 @@ public class MaterialListAreaAnalyzer extends MaterialListBase
     @Override
     public void reCreateMaterialList()
     {
+        ServerAnalyzeSession session = ServerAnalyzeSession.getInstance();
+
         // Prefer the server: it is not limited to the loaded chunks within the render
         // distance, and it can read container contents, which the client is never told about
-        if (Configs.Generic.ANALYZE_USING_SERVUX.getBooleanValue() && this.startServerAnalysis())
+        if (this.startServerTask(Configs.Generic.ANALYZE_USING_SERVUX.getBooleanValue(), session,
+                                 () -> session.start(this.selection, this),
+                                 "litematica.message.warn.area_analyzer.no_server_support",
+                                 "litematica.message.area_analyzer.server_requested"))
         {
             return;
-        }
-
-        // A server run still in flight would land on top of the local count and replace it
-        if (ServerAnalyzeSession.getInstance().isActiveFor(this))
-        {
-            ServerAnalyzeSession.getInstance().cancel();
         }
 
         TaskCountBlocksArea task = new TaskCountBlocksArea(this.selection, this);
         TaskScheduler.getInstanceClient().scheduleTask(task, 20);
         InfoUtils.showGuiOrInGameMessage(MessageType.INFO, "litematica.message.scheduled_task_added");
-    }
-
-    /**
-     * @return false when the server cannot do it, so that the local task still runs; the
-     *         list a player gets then is the one they would have got without the option
-     */
-    private boolean startServerAnalysis()
-    {
-        ServerAnalyzeSession session = ServerAnalyzeSession.getInstance();
-
-        if (session.isSupportedByServer() == false)
-        {
-            InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.area_analyzer.no_server_support");
-            return false;
-        }
-
-        if (session.start(this.selection, this))
-        {
-            InfoUtils.showGuiOrInGameMessage(MessageType.INFO, "litematica.message.area_analyzer.server_requested");
-            return true;
-        }
-
-        return false;
     }
 }
