@@ -112,6 +112,7 @@ public class Configs implements IConfigHandler
         public static final ConfigBoolean       MATERIAL_LIST_RECIPE_DETAILS= new ConfigBoolean("materialListRecipeDetails", true).apply(GENERIC_KEY);
         public static final ConfigBoolean       MATERIAL_LIST_USING_SERVUX  = new ConfigBoolean("materialListUsingServux", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_ALWAYS_USE_FILL       = new ConfigBoolean("pasteAlwaysUseFill", false).apply(GENERIC_KEY);
+        public static final ConfigBoolean       PASTE_ALWAYS_USE_PERSISTENT = new ConfigBoolean("pasteAlwaysUsePersistent", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_BE_ENTIRELY    = new ConfigBoolean("pasteIgnoreBlockEntitiesEntirely", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_BE_IN_FILL     = new ConfigBoolean("pasteIgnoreBlockEntitiesFromFill", true).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_CMD_LIMIT      = new ConfigBoolean("pasteIgnoreCommandLimitWithNbtRestore", true).apply(GENERIC_KEY);
@@ -206,6 +207,7 @@ public class Configs implements IConfigHandler
                 MATERIAL_LIST_RECIPE_DETAILS,
                 MATERIAL_LIST_USING_SERVUX,
                 PASTE_ALWAYS_USE_FILL,
+                PASTE_ALWAYS_USE_PERSISTENT,
                 PASTE_IGNORE_BE_ENTIRELY,
                 PASTE_IGNORE_BE_IN_FILL,
                 PASTE_IGNORE_CMD_LIMIT,
