@@ -306,6 +306,15 @@ public class WorldSchematic extends Level
             return;
         }
 
+        // Before any entity goes, so that a reader that sees the chunk as populated after
+        // reading its entities has read all of them
+        ChunkSchematic chunk = this.getChunkSource().getChunkIfExists(chunkX, chunkZ);
+
+        if (chunk != null)
+        {
+            chunk.setPopulated(false);
+        }
+
         ChunkPos pos = new ChunkPos(chunkX, chunkZ);
         int count = this.entityLookup.removeByChunk(pos, this);
 
