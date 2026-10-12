@@ -1187,6 +1187,18 @@ public class SchematicPlacementManager
         // We can safely use endAll() here; but this is mainly for performance reasons
         PlacementManagerDaemonHandler.INSTANCE.reset();
         this.pendingTasks.clear();
+
+        // Also on a dimension change, which loads new placements in place of these. A verifier
+        // left running would keep matching the next dimension's entities against its results,
+        // and keep its HUD lines and entity highlights with nothing left to clear them from.
+        for (SchematicPlacement placement : this.schematicPlacements)
+        {
+            if (placement.hasVerifier())
+            {
+                placement.getSchematicVerifier().reset();
+            }
+        }
+
         this.schematicPlacements.clear();
         this.selectedPlacement = null;
         this.schematicsTouchingChunk.clear();

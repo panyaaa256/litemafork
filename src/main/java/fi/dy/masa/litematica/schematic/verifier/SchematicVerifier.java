@@ -5,6 +5,7 @@ import javax.annotation.Nullable;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import org.apache.commons.lang3.tuple.MutablePair;
@@ -13,10 +14,12 @@ import org.apache.commons.lang3.tuple.Pair;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.minecraft.util.profiling.Profiler;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -62,6 +65,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private static final MutablePair<BlockState, BlockState> MUTABLE_PAIR = new MutablePair<>();
     private static final BlockPos.MutableBlockPos MUTABLE_POS = new BlockPos.MutableBlockPos();
     private static final List<SchematicVerifier> ACTIVE_VERIFIERS = new ArrayList<>();
+    /** Client ticks between two checks of a server run's unseen entities, the local task's own rate. */
+    private static final int SERVER_UNSEEN_CHECK_INTERVAL = 10;
+    private static int serverUnseenCheckTicks;
     /** Blocks short of the entity tracking range that still count as seeable; see canClientSeeEntityAt(). */
     private static final double ENTITY_TRACKING_MARGIN = 8.0;
 
@@ -85,12 +91,16 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final Set<UUID> usedClientEntityUuids = new HashSet<>();
     private final Map<UUID, MissingEntityEntry> matchedClientEntities = new HashMap<>();
     private final Set<EntityMismatch> selectedEntityEntries = new HashSet<>();
-    private final Set<UUID> entityHighlightUuids = new HashSet<>();
+    /** The selected missing entities, by the schematic entity each was last paired with. */
+    private final Map<UUID, MissingEntityEntry> entityHighlightsByUuid = new HashMap<>();
     /**
-     * Selected missing entities whose schematic world entity is not known yet, because it was
-     * not loaded when the server reported them. They are paired up as it gets rendered.
+     * The same selected entries by the chunk section they are in, to pair them with a schematic
+     * entity by position. That is needed for a server result whose schematic entity was not
+     * loaded when it arrived, and whenever the paired entity is gone: a rebuilt schematic chunk
+     * spawns its entities anew, and an entity whose UUID was already taken (two placements of
+     * one schematic) gets a random one each time.
      */
-    private final List<MissingEntityEntry> entityHighlightPending = new ArrayList<>();
+    private final Long2ObjectOpenHashMap<List<MissingEntityEntry>> entityHighlightsBySection = new Long2ObjectOpenHashMap<>();
     private final List<MismatchRenderPos> entityMismatchPositionsForRender = new ArrayList<>();
     private final Object2IntOpenHashMap<BlockState> correctStateCounts = new Object2IntOpenHashMap<>();
     private final Object2ObjectOpenHashMap<BlockPos, BlockMismatch> blockMismatches = new Object2ObjectOpenHashMap<>();
@@ -167,6 +177,31 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 	    }
     }
 
+    /**
+     * A server run schedules no task, but its results can still get unseen entities: a missing
+     * entity that was placed afterwards goes unseen once the player walks out of its tracking
+     * range. Those are checked here at the rate a local run's task checks its own, so that one
+     * broken meanwhile turns into missing once the player is back.
+     */
+    public static void onClientTick()
+    {
+        if (ACTIVE_VERIFIERS.isEmpty() || ++serverUnseenCheckTicks < SERVER_UNSEEN_CHECK_INTERVAL)
+        {
+            return;
+        }
+
+        serverUnseenCheckTicks = 0;
+        ProfilerFiller profiler = Profiler.get();
+
+        for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
+        {
+            if (activeVerifier.serverMode)
+            {
+                activeVerifier.checkUnseenEntities(profiler);
+            }
+        }
+    }
+
     public static void markVerifierEntityAdded(Entity entity)
     {
         for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
@@ -195,8 +230,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         for (SchematicVerifier activeVerifier : ACTIVE_VERIFIERS)
         {
-            if (activeVerifier.entityHighlightUuids.contains(entity.getUUID()) ||
-                activeVerifier.claimPendingHighlight(entity))
+            if (activeVerifier.isHighlightedSchematicEntity(entity))
             {
                 return true;
             }
@@ -206,36 +240,90 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
 
     /**
-     * Pairs a just rendered schematic entity with a selected missing entry that has no
-     * schematic entity yet, by the same type and tolerance rule as everywhere else, and
-     * remembers the pairing so that later frames go by the UUID.
+     * Whether a just rendered schematic entity stands for one of the selected missing entries.
+     * <p>
+     * Usually that is known by its UUID. Otherwise it is paired by the same type and tolerance
+     * rule as everywhere else with a selected entry that has no live schematic entity of its
+     * own, and that pairing is remembered so that later frames go by the UUID again.
      */
-    private boolean claimPendingHighlight(Entity entity)
+    private boolean isHighlightedSchematicEntity(Entity entity)
     {
-        if (this.entityHighlightPending.isEmpty())
+        if (this.entityHighlightsBySection.isEmpty())
         {
             return false;
         }
 
-        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
-        final double maxDistSq = Math.max(tolerance, 0.001) * Math.max(tolerance, 0.001);
-        Iterator<MissingEntityEntry> iter = this.entityHighlightPending.iterator();
+        final double tolerance = Math.max(Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue(), 0.001);
+        MissingEntityEntry paired = this.entityHighlightsByUuid.get(entity.getUUID());
 
-        while (iter.hasNext())
+        // Checked again, as the UUID may have moved on to another placement's copy
+        if (paired != null && isSameEntity(paired, entity, tolerance))
         {
-            MissingEntityEntry entry = iter.next();
+            return true;
+        }
 
-            if (entry.entityType == entity.getType() && entry.pos.distanceToSqr(entity.position()) <= maxDistSq)
+        Vec3 pos = entity.position();
+        final int minX = SectionPos.blockToSectionCoord(Mth.floor(pos.x - tolerance));
+        final int minY = SectionPos.blockToSectionCoord(Mth.floor(pos.y - tolerance));
+        final int minZ = SectionPos.blockToSectionCoord(Mth.floor(pos.z - tolerance));
+        final int maxX = SectionPos.blockToSectionCoord(Mth.floor(pos.x + tolerance));
+        final int maxY = SectionPos.blockToSectionCoord(Mth.floor(pos.y + tolerance));
+        final int maxZ = SectionPos.blockToSectionCoord(Mth.floor(pos.z + tolerance));
+
+        for (int sy = minY; sy <= maxY; ++sy)
+        {
+            for (int sz = minZ; sz <= maxZ; ++sz)
             {
-                entry.schematicEntityUuid = entity.getUUID();
-                this.entityHighlightUuids.add(entity.getUUID());
-                iter.remove();
+                for (int sx = minX; sx <= maxX; ++sx)
+                {
+                    List<MissingEntityEntry> entries = this.entityHighlightsBySection.get(SectionPos.asLong(sx, sy, sz));
 
-                return true;
+                    if (entries == null)
+                    {
+                        continue;
+                    }
+
+                    for (MissingEntityEntry entry : entries)
+                    {
+                        if (isSameEntity(entry, entity, tolerance) && this.hasLivePairing(entry, entity, tolerance) == false)
+                        {
+                            if (entry.schematicEntityUuid != null)
+                            {
+                                this.entityHighlightsByUuid.remove(entry.schematicEntityUuid, entry);
+                            }
+
+                            entry.schematicEntityUuid = entity.getUUID();
+                            this.entityHighlightsByUuid.put(entity.getUUID(), entry);
+
+                            return true;
+                        }
+                    }
+                }
             }
         }
 
         return false;
+    }
+
+    private static boolean isSameEntity(MissingEntityEntry entry, Entity entity, double tolerance)
+    {
+        return entry.entityType == entity.getType() && entry.pos.distanceToSqr(entity.position()) <= tolerance * tolerance;
+    }
+
+    /**
+     * Whether the entry is still paired with a schematic entity that stands for it. Such an
+     * entry is left alone, so that two schematic entities in one spot do not take turns at it.
+     */
+    private boolean hasLivePairing(MissingEntityEntry entry, Entity entity, double tolerance)
+    {
+        if (entry.schematicEntityUuid == null)
+        {
+            return false;
+        }
+
+        Entity paired = entity.level().getEntity(entry.schematicEntityUuid);
+
+        return paired != null && paired != entity && isSameEntity(entry, paired, tolerance);
     }
 
     /**
@@ -499,8 +587,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.mismatchPositionsForRender.clear();
         this.mismatchBlockPositionsForRender.clear();
         this.entityMismatchPositionsForRender.clear();
-        this.entityHighlightUuids.clear();
-        this.entityHighlightPending.clear();
+        this.entityHighlightsByUuid.clear();
+        this.entityHighlightsBySection.clear();
         this.infoHudLines.clear();
     }
 
@@ -1002,8 +1090,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.usedClientEntityUuids.clear();
         this.matchedClientEntities.clear();
         this.selectedEntityEntries.clear();
-        this.entityHighlightUuids.clear();
-        this.entityHighlightPending.clear();
+        this.entityHighlightsByUuid.clear();
+        this.entityHighlightsBySection.clear();
         this.entityMismatchPositionsForRender.clear();
 
         ACTIVE_VERIFIERS.remove(this);
@@ -1830,8 +1918,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void updateSelectedEntityHighlights(BlockPos centerPos)
     {
-        this.entityHighlightUuids.clear();
-        this.entityHighlightPending.clear();
+        this.entityHighlightsByUuid.clear();
+        this.entityHighlightsBySection.clear();
         this.entityMismatchPositionsForRender.clear();
 
         List<MissingEntityEntry> entries;
@@ -1853,15 +1941,14 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         for (MissingEntityEntry entry : entries)
         {
             // Unknown for a server result whose schematic entity was not loaded yet; that one
-            // is paired up once the entity gets rendered, see claimPendingHighlight()
+            // is paired up once the entity gets rendered, see isHighlightedSchematicEntity()
             if (entry.schematicEntityUuid != null)
             {
-                this.entityHighlightUuids.add(entry.schematicEntityUuid);
+                this.entityHighlightsByUuid.put(entry.schematicEntityUuid, entry);
             }
-            else
-            {
-                this.entityHighlightPending.add(entry);
-            }
+
+            BlockPos pos = BlockPos.containing(entry.pos);
+            this.entityHighlightsBySection.computeIfAbsent(SectionPos.asLong(pos), k -> new ArrayList<>()).add(entry);
 
             this.entityMismatchPositionsForRender.add(new MismatchRenderPos(MismatchType.MISSING_ENTITY, BlockPos.containing(entry.pos)));
         }
@@ -2193,7 +2280,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     public static class MissingEntityEntry
     {
         public final EntityType<?> entityType;
-        /** Filled in later for a server result whose schematic entity was not loaded yet. */
+        /**
+         * The schematic world entity this entry was last seen as. Filled in later for a server
+         * result whose schematic entity was not loaded yet, and moved on to the new entity when
+         * its schematic chunk is rebuilt.
+         */
         @Nullable public UUID schematicEntityUuid;
         public final Vec3 pos;
 
