@@ -37,6 +37,7 @@ import fi.dy.masa.litematica.materials.json.MaterialListJson;
 import fi.dy.masa.litematica.materials.json.MaterialListJsonCache;
 import fi.dy.masa.litematica.render.infohud.InfoHud;
 import fi.dy.masa.litematica.util.BlockInfoListType;
+import fi.dy.masa.litematica.util.EntityUtils;
 import fi.dy.masa.litematica.util.InclusionType;
 
 public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMaterialListEntry, WidgetListMaterialList>
@@ -477,6 +478,8 @@ public class GuiMaterialList extends GuiListBase<MaterialListEntry, WidgetMateri
 
                 case CLEAR_CACHE:
                     MaterialCache.getInstance().clearCache();
+                    // What an entity costs is cached the same way, and goes stale the same way
+                    EntityUtils.clearEntityItemCache();
                     this.parent.addMessage(MessageType.SUCCESS, 3000, "litematica.message.material_list.material_cache_cleared");
                     break;
 
