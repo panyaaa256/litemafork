@@ -28,6 +28,12 @@ public class ChunkSchematic extends LevelChunk
     private final int topY;
     private boolean isEmpty = true;
     private ChunkSchematicState state;
+    /**
+     * Set once this chunk holds everything the placements put here, entities included, and
+     * cleared again as soon as its entities start being taken down for a rebuild. A chunk is
+     * registered empty before it is filled, so being loaded alone says nothing about this.
+     */
+    private volatile boolean populated;
 
     public ChunkSchematic(Level worldIn, ChunkPos pos)
     {
@@ -47,6 +53,17 @@ public class ChunkSchematic extends LevelChunk
     public ChunkSchematicState getState()
     {
         return this.state;
+    }
+
+    public void setPopulated(boolean populated)
+    {
+        this.populated = populated;
+    }
+
+    /** Whether the blocks and the entities of this chunk are all in place; see {@link #populated}. */
+    public boolean isPopulated()
+    {
+        return this.populated;
     }
 
     @Override

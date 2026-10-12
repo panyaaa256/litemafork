@@ -87,6 +87,8 @@ public class PlacementManagerTaskRebuild extends PlacementManagerTask
 					worldSchematic.unloadEntitiesByChunk(this.cx(), this.cz());
 					worldSchematic.getChunkSource().replaceChunk(this.cx(), this.cz(), protoChunk.getWrapped());
 					protoChunk.spawnAllEntitiesNow(worldSchematic);
+					// Only now is the chunk complete; the verifier waits for this
+					protoChunk.getWrapped().setPopulated(true);
 				}
 
 				protoChunk.clear();
