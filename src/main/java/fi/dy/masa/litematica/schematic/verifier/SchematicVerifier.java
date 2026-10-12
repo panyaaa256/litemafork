@@ -54,6 +54,7 @@ import fi.dy.masa.litematica.scheduler.tasks.TaskBase;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
 import fi.dy.masa.litematica.schematic.placement.SubRegionPlacement;
 import fi.dy.masa.litematica.util.*;
+import fi.dy.masa.litematica.world.ChunkSchematic;
 import fi.dy.masa.litematica.world.WorldSchematic;
 
 public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
@@ -1123,20 +1124,43 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 }
 
                 // Require the surrounding chunks in the client world to be loaded as well
-                if (count == 9 && this.worldSchematic.getChunkSource().hasChunk(pos.x, pos.z))
+                if (count != 9)
                 {
-                    ChunkAccess chunkClient = this.worldClient.getChunk(pos.x, pos.z);
-                    ChunkAccess chunkSchematic = this.worldSchematic.getChunk(pos.x, pos.z);
-                    Map<String, IntBoundingBox> boxes = this.schematicPlacement.getBoxesWithinChunk(pos.x, pos.z, SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED);
-
-                    for (IntBoundingBox box : boxes.values())
-                    {
-                        this.verifyChunk(chunkClient, chunkSchematic, box);
-                    }
-
-                    iter.remove();
-                    checkedSome = true;
+                    continue;
                 }
+
+                // The schematic chunk is filled in on another thread: it is registered empty
+                // first, and gets its blocks and then its entities later. Until it is populated,
+                // it would read as a chunk with nothing in it.
+                ChunkSchematic chunkSchematic = this.worldSchematic.getChunkSource().getChunkIfExists(pos.x, pos.z);
+
+                if (chunkSchematic == null || chunkSchematic.isPopulated() == false)
+                {
+                    continue;
+                }
+
+                List<Entity> schematicEntities = this.checkEntities
+                        ? this.worldSchematic.getEntitiesByChunk(pos.x, pos.z, SchematicVerifier::isVerifiableEntity)
+                        : List.of();
+
+                // A rebuild may have started taking the chunk down while its entities were read;
+                // then the chunk is checked again once the rebuild is done
+                if (chunkSchematic.isPopulated() == false ||
+                    this.worldSchematic.getChunkSource().getChunkIfExists(pos.x, pos.z) != chunkSchematic)
+                {
+                    continue;
+                }
+
+                ChunkAccess chunkClient = this.worldClient.getChunk(pos.x, pos.z);
+                Map<String, IntBoundingBox> boxes = this.schematicPlacement.getBoxesWithinChunk(pos.x, pos.z, SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED);
+
+                for (IntBoundingBox box : boxes.values())
+                {
+                    this.verifyChunk(chunkClient, chunkSchematic, schematicEntities, box);
+                }
+
+                iter.remove();
+                checkedSome = true;
             }
 
             if (checkedSome)
@@ -1359,7 +1383,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         return list;
     }
 
-    private boolean verifyChunk(ChunkAccess chunkClient, ChunkAccess chunkSchematic, IntBoundingBox box)
+    private boolean verifyChunk(ChunkAccess chunkClient, ChunkAccess chunkSchematic, List<Entity> schematicEntities, IntBoundingBox box)
     {
         LayerRange range = DataManager.getRenderLayerRange();
         Direction.Axis axis = range.getAxis();
@@ -1397,19 +1421,18 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             }
         }
 
-        this.verifyEntitiesInBox(chunkSchematic.getPos(), startX, startY, startZ, endX, endY, endZ);
+        this.verifyEntitiesInBox(schematicEntities, startX, startY, startZ, endX, endY, endZ);
 
         return true;
     }
 
-    private void verifyEntitiesInBox(ChunkPos chunkPos, int startX, int startY, int startZ, int endX, int endY, int endZ)
+    private void verifyEntitiesInBox(List<Entity> schematicEntities, int startX, int startY, int startZ, int endX, int endY, int endZ)
     {
         if (this.checkEntities == false)
         {
             return;
         }
 
-        List<Entity> schematicEntities = this.worldSchematic.getEntitiesByChunk(chunkPos.x, chunkPos.z, SchematicVerifier::isVerifiableEntity);
         final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
 
         for (Entity schematicEntity : schematicEntities)
