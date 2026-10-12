@@ -4,6 +4,7 @@ import fi.dy.masa.malilib.interfaces.IClientTickHandler;
 import net.minecraft.client.Minecraft;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.data.DataManager;
+import fi.dy.masa.litematica.schematic.verifier.SchematicVerifier;
 import fi.dy.masa.litematica.selection.SelectionManager;
 import fi.dy.masa.litematica.util.EasyPlaceUtils;
 import fi.dy.masa.litematica.util.LayerUtils;
@@ -38,6 +39,7 @@ public class ClientTickHandler implements IClientTickHandler
             LayerUtils.onClientTick(mc);
             DataManager.getSchematicPlacementManager().onClientTick(mc);
             TaskScheduler.getInstanceClient().runTasks();
+            SchematicVerifier.onClientTick();
         }
     }
 }
