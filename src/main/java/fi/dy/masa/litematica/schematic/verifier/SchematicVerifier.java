@@ -853,6 +853,30 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.missingEntitiesPositions.put(type, new MissingEntityEntry(type, uuid, pos));
     }
 
+    /**
+     * A schematic entity the server found in the world, as the world entity with this UUID.
+     * <p>
+     * Remembered the same way as a match of a local run. Without it, that world entity coming
+     * into range later would be free to be taken for a missing one nearby - one of two
+     * minecarts placed in the same spot for the other, missing one - and it being broken
+     * would go unnoticed.
+     */
+    public void addServerMatchedEntity(String entityId, Vec3 pos, UUID worldEntity)
+    {
+        Identifier id = Identifier.tryParse(entityId);
+        EntityType<?> type = id != null ? BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null) : null;
+
+        if (type == null || this.checkEntities == false)
+        {
+            return;
+        }
+
+        // For the list icon, should it go missing later
+        this.cacheEntityMismatchStack(type);
+        // The schematic entity is looked up for the outline only if it does go missing
+        this.matchEntity(worldEntity, new MissingEntityEntry(type, null, pos));
+    }
+
     /** The schematic world entity of this type closest to pos, within the position tolerance. */
     @Nullable
     private Entity findSchematicEntity(EntityType<?> type, Vec3 pos)
@@ -1557,8 +1581,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     /** Remembers which client world entity a schematic entity was found as. */
     private void matchEntity(Entity match, MissingEntityEntry entry)
     {
-        this.usedClientEntityUuids.add(match.getUUID());
-        this.matchedClientEntities.put(match.getUUID(), entry);
+        this.matchEntity(match.getUUID(), entry);
+    }
+
+    private void matchEntity(UUID match, MissingEntityEntry entry)
+    {
+        this.usedClientEntityUuids.add(match);
+        this.matchedClientEntities.put(match, entry);
     }
 
     /**
