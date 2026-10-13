@@ -1616,7 +1616,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private void checkUnseenEntities(ProfilerFiller profiler)
     {
         if (this.checkEntities == false || this.unseenEntitiesPositions.isEmpty() ||
-            (this.verificationActive == false && this.finished == false))
+            (this.verificationStarted == false && this.finished == false))
         {
             return;
         }
@@ -1728,8 +1728,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private void onClientEntityAdded(Entity entity)
     {
         // Also while the verification is still running: an entity's spawn packet can arrive
-        // after its chunk was already checked, and it must not stay reported as missing
-        if (this.checkEntities == false || (this.verificationActive == false && this.finished == false) ||
+        // after its chunk was already checked, and it must not stay reported as missing.
+        // And while it is paused, which keeps the entities it already checked.
+        if (this.checkEntities == false || (this.verificationStarted == false && this.finished == false) ||
             isVerifiableEntity(entity) == false || this.usedClientEntityUuids.contains(entity.getUUID()))
         {
             return;
@@ -1766,7 +1767,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
     private void onClientEntityRemoved(Entity entity)
     {
-        if (this.checkEntities == false || (this.verificationActive == false && this.finished == false))
+        if (this.checkEntities == false || (this.verificationStarted == false && this.finished == false))
         {
             return;
         }
