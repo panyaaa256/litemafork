@@ -323,7 +323,7 @@ public abstract class ServerTaskSessionBase implements IInfoHudRenderer
 	}
 
 	@Nullable
-	private static UUID uuidFromIntArray(@Nullable int[] array)
+	protected static UUID uuidFromIntArray(@Nullable int[] array)
 	{
 		if (array == null || array.length != 4)
 		{
