@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(JAVA_HOME=\"/c/Program Files/Java/jdk-21.0.10\" ./gradlew compileJava -q)",
+      "Bash(find C:/Users/renya/projects/litemafork -name \"*.jar\" -path \"*minecraft*\" 2>/dev/null | head; ls ~/.gradle/caches/fabric-loom 2>/dev/null | head)",
+      "Bash(unzip -l .gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-83491092ca/1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2/minecraft-merged-83491092ca-1.21.11-loom.mappings.1_21_11.layered+hash.2198-v2.jar)",
+      "Bash(find 'C:\\\\Users\\\\renya/.gradle/caches' -iname *malilib* -name *.jar)",
+      "Bash(python -c ' *)",
+      "Bash(/c/Users/renya/.jdks/openjdk-26.0.1/bin/javap.exe -v dev/kikugie/techutils/mixin/mod/litematica/SchematicVerifierMixin.class)",
+      "Bash(git ls-tree *)"
+    ]
+  }
+}
