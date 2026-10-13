@@ -78,6 +78,8 @@ public class ServerVerifySession
 		// The same rules and tolerance as a local run, so that both find the same entities missing
 		nbt.putBoolean("VerifyEntities", isCheckingEntities());
 		nbt.putDouble("EntityTolerance", Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue());
+		// Which world entity each found one is, so that it is not taken for a missing one later
+		nbt.putBoolean("ReportMatchedEntities", isCheckingEntities());
 
 		Litematica.debugLog("ServerVerifySession: requesting verification of '{}' (session {})", placement.getName(), this.sessionId);
 
@@ -229,6 +231,24 @@ public class ServerVerifySession
 				this.verifier.addServerContents(BlockPos.of(entry.getLong("Pos")),
 				                                entry.getCompound("Expected"),
 				                                entry.getCompound("Found"));
+			}
+		}
+
+		// The schematic's entities that were found, with the world entity each was found as.
+		// A server that predates them does not send these. They come before the missing ones,
+		// so that the world entities they name are spoken for before any missing one arrives.
+		ListData matched = nbt.getList("MatchedEntities");
+
+		for (int i = 0; matched != null && i < matched.size(); i++)
+		{
+			CompoundData entry = matched.getCompoundAt(i);
+			UUID worldEntity = entry != null ? uuidFromIntArray(entry.getIntArray("UUID")) : null;
+
+			if (worldEntity != null && entry.contains("Type", Constants.NBT.TAG_STRING))
+			{
+				this.verifier.addServerMatchedEntity(entry.getString("Type"),
+				                                     new Vec3(entry.getDouble("X"), entry.getDouble("Y"), entry.getDouble("Z")),
+				                                     worldEntity);
 			}
 		}
 
