@@ -837,6 +837,18 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             return;
         }
 
+        this.fileServerMissingEntity(type, pos);
+    }
+
+    /**
+     * Files a schematic entity the server has no world entity for as missing - unless one has
+     * turned up since. The server looked some time before its result got here, as the run
+     * goes on for a while and its results queue up behind each other. An entity placed in the
+     * meantime has already been sent to us, with no missing entry yet to take off then, and
+     * would otherwise stay reported as missing.
+     */
+    private void fileServerMissingEntity(EntityType<?> type, Vec3 pos)
+    {
         // The schematic world's copy, for the glow outline on a selected entry. It is only
         // there while its chunk is within render distance, which the server's is not bound by.
         Entity schematicEntity = this.findSchematicEntity(type, pos);
@@ -851,7 +863,19 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
 
         UUID uuid = schematicEntity != null ? schematicEntity.getUUID() : null;
-        this.missingEntitiesPositions.put(type, new MissingEntityEntry(type, uuid, pos));
+        MissingEntityEntry entry = new MissingEntityEntry(type, uuid, pos);
+        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+        Entity match = this.worldClient != null ? this.findMatchingClientEntity(type, pos, tolerance) : null;
+
+        if (match != null)
+        {
+            this.usedClientEntityUuids.add(match.getUUID());
+            this.matchedClientEntities.put(match.getUUID(), entry);
+        }
+        else
+        {
+            this.missingEntitiesPositions.put(type, entry);
+        }
     }
 
     /**
@@ -872,11 +896,32 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             return;
         }
 
+        // The server found it some time before this got here. If the client was sent that
+        // entity, and has dropped it since while it could still see it, it was broken in the
+        // meantime; its removal came before this result, with nothing to file as missing then.
+        // Should its spawn packet merely be late, onClientEntityAdded() takes it back out.
+        if (this.worldClient != null && this.worldClient.getEntity(worldEntity) == null &&
+            this.canClientSeeEntityAt(type, pos))
+        {
+            this.fileServerMissingEntity(type, pos);
+            return;
+        }
+
         // For the list icon, should it go missing later
         this.cacheEntityMismatchStack(type);
+
+        // A missing entity of an earlier batch may have been taken to be this world entity,
+        // as one that turned up after the server looked; the server says it is this one
+        MissingEntityEntry displaced = this.matchedClientEntities.get(worldEntity);
+
         // The schematic entity is looked up for the outline only if it does go missing
         this.usedClientEntityUuids.add(worldEntity);
         this.matchedClientEntities.put(worldEntity, new MissingEntityEntry(type, null, pos));
+
+        if (displaced != null)
+        {
+            this.fileServerMissingEntity(displaced.entityType, displaced.pos);
+        }
     }
 
     /** The schematic world entity of this type closest to pos, within the position tolerance. */
