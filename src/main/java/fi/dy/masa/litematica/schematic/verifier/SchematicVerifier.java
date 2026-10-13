@@ -1028,6 +1028,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     /** The server could not run the verification; drop back out of server mode. */
     public void onServerFailed()
     {
+        // Whatever the server did not get to was never checked
+        this.serverUnreadableChunks = Math.max(0, this.serverChunksTotal - this.serverChunksDone);
         this.verificationActive = false;
         this.finished = true;
         this.notifyListener();

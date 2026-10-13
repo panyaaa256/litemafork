@@ -79,9 +79,19 @@ public class ServerVerifySession extends ServerTaskSessionBase
 			return false;
 		}
 
+		SchematicVerifier previous = this.verifier;
+
 		if (this.begin() == false)
 		{
 			return false;
+		}
+
+		// There is one session for every placement, so this has just dropped any run still
+		// going for another one. That verifier has to hear of it: it would otherwise stay
+		// active for good, and stopping it would cancel this run in its place.
+		if (previous != null && previous != verifier)
+		{
+			previous.onServerFailed();
 		}
 
 		this.verifier = verifier;
