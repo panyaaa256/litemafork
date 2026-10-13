@@ -1050,7 +1050,17 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         {
             // Otherwise the server keeps walking chunks for a result nobody wants
             ServerVerifySession.getInstance().cancel();
-            this.serverMode = false;
+
+            // A server run cannot be resumed: the server has dropped it, and there is no
+            // local task to carry on with. Left "paused", Resume would set it active again
+            // with nothing to ever finish it. It ends here instead, with what arrived so far
+            // as its result and the chunks the server did not get to as unseen.
+            this.serverUnreadableChunks = Math.max(0, this.serverChunksTotal - this.serverChunksDone);
+            this.verificationActive = false;
+            this.finished = true;
+
+            this.updateMismatchOverlays();
+            this.notifyListener();
         }
 
         this.verificationActive = false;
