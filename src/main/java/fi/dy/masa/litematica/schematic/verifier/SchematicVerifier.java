@@ -1572,10 +1572,14 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
     }
 
-    /** True while an entity result is worth keeping up to date: during a run, and after it. */
+    /**
+     * True while an entity result is worth keeping up to date: during a run, after it, and
+     * while it is paused. A paused run keeps the entities it already checked; one broken or
+     * placed meanwhile would otherwise go unnoticed for good once the run is resumed.
+     */
     private boolean isEntityTrackingLive()
     {
-        return this.checkEntities && (this.verificationActive || this.finished);
+        return this.checkEntities && (this.verificationStarted || this.finished);
     }
 
     /** Remembers which client world entity a schematic entity was found as. */
