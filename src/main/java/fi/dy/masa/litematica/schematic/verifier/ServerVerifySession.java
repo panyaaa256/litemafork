@@ -65,7 +65,17 @@ public class ServerVerifySession
 			return false;
 		}
 
+		SchematicVerifier previous = this.verifier;
+
 		this.cancel();
+
+		// There is one session for every placement, so this has just dropped any run still
+		// going for another one. That verifier has to hear of it: it would otherwise stay
+		// active for good, and stopping it would cancel this run in its place.
+		if (previous != null && previous != verifier)
+		{
+			previous.onServerFailed();
+		}
 
 		this.sessionId = UUID.randomUUID();
 		this.verifier = verifier;
