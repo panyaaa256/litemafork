@@ -125,10 +125,10 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final Set<ChunkPos> requiredChunks = new HashSet<>();
     private final Set<BlockPos> recheckQueue = new HashSet<>();
     /**
-     * The schematic entities of the chunk that is currently being checked. They are read before
-     * the chunk's teardown is re-checked, so they are handed to {@link #verifyChunk} through this
-     * field rather than a parameter: the parameter list of verifyChunk is a mixin target for
-     * other mods (techutils' Inventory Verifier), so it has to stay as upstream left it.
+     * The schematic entities of the chunk whose boxes {@link #verifyChunk} is checking, set only
+     * for the duration of those calls. They are handed over through this field rather than a
+     * parameter: the parameter list of verifyChunk is a mixin target for other mods (techutils'
+     * Inventory Verifier), so it has to stay as upstream left it.
      */
     private List<Entity> schematicEntitiesForChunk = List.of();
     private final Minecraft mc = Minecraft.getInstance();
@@ -1299,7 +1299,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                     continue;
                 }
 
-                this.schematicEntitiesForChunk = this.checkEntities
+                List<Entity> schematicEntities = this.checkEntities
                         ? this.worldSchematic.getEntitiesByChunk(pos.x(), pos.z(), SchematicVerifier::isVerifiableEntity)
                         : List.of();
 
@@ -1314,10 +1314,15 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 ChunkAccess chunkClient = this.worldClient.getChunk(pos.x(), pos.z());
                 Map<String, IntBoundingBox> boxes = this.schematicPlacement.getBoxesWithinChunk(pos.x(), pos.z(), SubRegionPlacement.RequiredEnabled.RENDERING_ENABLED);
 
+                this.schematicEntitiesForChunk = schematicEntities;
+
                 for (IntBoundingBox box : boxes.values())
                 {
                     this.verifyChunk(chunkClient, chunkSchematic, box);
                 }
+
+                // Don't hold on to the schematic world's entities once the chunk is done
+                this.schematicEntitiesForChunk = List.of();
 
                 iter.remove();
                 checkedSome = true;
