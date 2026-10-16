@@ -31,6 +31,13 @@ public class ServerTaskRouter
 	{
 		String task = nbt.getStringOrDefault("Task", "");
 
+		// The other features answer on this packet type as well; only ours are worth a word
+		if (!task.startsWith(TASK_PREFIX))
+		{
+			Litematica.debugLog("ServerTaskRouter: ignoring a task response for '{}'", task);
+			return;
+		}
+
 		if (task.equals(VERIFY_PREFIX + "Error"))
 		{
 			ServerVerifySession.getInstance().handleError(nbt);
