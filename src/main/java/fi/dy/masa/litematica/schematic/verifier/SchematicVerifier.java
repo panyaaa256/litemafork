@@ -124,6 +124,13 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     private final HashMultimap<MismatchType, BlockMismatch> selectedEntries = HashMultimap.create();
     private final Set<ChunkPos> requiredChunks = new HashSet<>();
     private final Set<BlockPos> recheckQueue = new HashSet<>();
+    /**
+     * The schematic entities of the chunk that is currently being checked. They are read before
+     * the chunk's teardown is re-checked, so they are handed to {@link #verifyChunk} through this
+     * field rather than a parameter: the parameter list of verifyChunk is a mixin target for
+     * other mods (techutils' Inventory Verifier), so it has to stay as upstream left it.
+     */
+    private List<Entity> schematicEntitiesForChunk = List.of();
     private final Minecraft mc = Minecraft.getInstance();
     private ClientLevel worldClient;
     private WorldSchematic worldSchematic;
@@ -1274,8 +1281,10 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                     }
                 }
 
-                // Require the surrounding chunks in the client world to be loaded as well
-                if (count != 9)
+                // Require the surrounding chunks in the client world to be loaded as well.
+                // The hasChunk() call is what techutils' Inventory Verifier wraps to hold a chunk
+                // back until the entity data it asked the server for has arrived.
+                if (count != 9 || this.worldSchematic.getChunkSource().hasChunk(pos.x, pos.z) == false)
                 {
                     continue;
                 }
@@ -1290,7 +1299,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                     continue;
                 }
 
-                List<Entity> schematicEntities = this.checkEntities
+                this.schematicEntitiesForChunk = this.checkEntities
                         ? this.worldSchematic.getEntitiesByChunk(pos.x, pos.z, SchematicVerifier::isVerifiableEntity)
                         : List.of();
 
@@ -1307,7 +1316,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
                 for (IntBoundingBox box : boxes.values())
                 {
-                    this.verifyChunk(chunkClient, chunkSchematic, schematicEntities, box);
+                    this.verifyChunk(chunkClient, chunkSchematic, box);
                 }
 
                 iter.remove();
@@ -1534,7 +1543,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         return list;
     }
 
-    private boolean verifyChunk(ChunkAccess chunkClient, ChunkAccess chunkSchematic, List<Entity> schematicEntities, IntBoundingBox box)
+    private boolean verifyChunk(ChunkAccess chunkClient, ChunkAccess chunkSchematic, IntBoundingBox box)
     {
         LayerRange range = DataManager.getRenderLayerRange();
         Direction.Axis axis = range.getAxis();
@@ -1572,7 +1581,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             }
         }
 
-        this.verifyEntitiesInBox(schematicEntities, new IntBoundingBox(startX, startY, startZ, endX, endY, endZ));
+        this.verifyEntitiesInBox(this.schematicEntitiesForChunk, new IntBoundingBox(startX, startY, startZ, endX, endY, endZ));
 
         return true;
     }
