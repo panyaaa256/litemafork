@@ -1,7 +1,6 @@
 package fi.dy.masa.litematica.network.task;
 
 import java.util.List;
-import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.client.Minecraft;
@@ -30,7 +29,7 @@ import fi.dy.masa.litematica.util.InclusionType;
  * The tallies are accumulated across batches and handed to the material list only once the
  * final batch lands, so the GUI never shows a half-built list.
  */
-public class ServerAnalyzeSession extends ServerTaskSessionBase
+public class ServerAnalyzeSession extends MaterialListTaskSessionBase
 {
 	private static final ServerAnalyzeSession INSTANCE = new ServerAnalyzeSession();
 
@@ -42,10 +41,6 @@ public class ServerAnalyzeSession extends ServerTaskSessionBase
 	private final Object2IntOpenHashMap<BlockState> blockCounts = new Object2IntOpenHashMap<>();
 	private final Object2IntOpenHashMap<ItemType> entityCounts = new Object2IntOpenHashMap<>();
 	private final Object2IntOpenHashMap<ItemType> containerCounts = new Object2IntOpenHashMap<>();
-
-	@Nullable private MaterialListBase materialList;
-	private InclusionType entitiesInclusionType = InclusionType.NONE;
-	private InclusionType containersInclusionType = InclusionType.NONE;
 
 	private ServerAnalyzeSession() {}
 
@@ -67,12 +62,6 @@ public class ServerAnalyzeSession extends ServerTaskSessionBase
 		return "litematica.gui.label.task_name.area_analyzer";
 	}
 
-	/** True while the given list is the one waiting on a server result. */
-	public boolean isActiveFor(MaterialListBase list)
-	{
-		return this.isActive() && this.materialList == list;
-	}
-
 	/**
 	 * Asks the server to analyze the given area.
 	 *
@@ -86,11 +75,7 @@ public class ServerAnalyzeSession extends ServerTaskSessionBase
 			return false;
 		}
 
-		this.materialList = materialList;
-		// Captured for the whole run, the way the local task captures them in its
-		// constructor: what comes back has to be read the way it was asked for
-		this.entitiesInclusionType = materialList.getEntitiesInclusionType();
-		this.containersInclusionType = materialList.getContainersInclusionType();
+		this.claim(materialList);
 
 		CompoundData nbt = new CompoundData();
 
@@ -113,64 +98,30 @@ public class ServerAnalyzeSession extends ServerTaskSessionBase
 	}
 
 	@Override
-	protected void clear()
+	protected void clearCounts()
 	{
-		super.clear();
-
-		this.materialList = null;
-		this.entitiesInclusionType = InclusionType.NONE;
-		this.containersInclusionType = InclusionType.NONE;
 		this.blockCounts.clear();
 		this.entityCounts.clear();
 		this.containerCounts.clear();
 	}
 
 	@Override
-	public void handleResult(CompoundData nbt)
+	protected void readCounts(CompoundData nbt)
 	{
-		if (!this.matches(nbt) || this.materialList == null)
-		{
-			return;
-		}
-
 		ServerTaskResultReader.readBlockCounts(nbt.getIntArray("BlockPalette"), nbt.getIntArray("BlockCounts"), this.blockCounts);
 		// Entity types resolve to the same items the local analyzer counts them as, so a
 		// server result and a local result render identically
 		ServerTaskResultReader.readEntityCounts(nbt.getList("EntityIds"), nbt.getIntArray("EntityCounts"), this.entityCounts);
 		ServerTaskResultReader.readItemCounts(nbt.getList("ItemIds"), nbt.getIntArray("ItemCounts"), this.containerCounts);
-
-		final int batch = nbt.getInt("Batch");
-		final boolean last = nbt.getBoolean("Final");
-
-		// Acknowledge either way: the server frees the session on the final ack
-		this.acknowledge(batch);
-
-		if (last)
-		{
-			this.finish(nbt.getCompound("Totals"));
-		}
 	}
 
-	/** The server has sent its final batch; turn the tallies into the list itself. */
-	private void finish(@Nullable CompoundData totals)
+	@Override
+	protected List<MaterialListEntry> buildEntries()
 	{
-		MaterialListBase list = this.materialList;
-
-		List<MaterialListEntry> entries = MaterialListUtils.buildEntriesForAreaAnalyzer(
+		return MaterialListUtils.buildEntriesForAreaAnalyzer(
 				this.blockCounts,
 				this.entityCounts, this.entitiesInclusionType,
 				this.containerCounts, this.containersInclusionType,
 				Minecraft.getInstance().player);
-
-		// clear() before delivering: setMaterialListEntries() notifies the GUI, which may
-		// then ask whether a run is still going
-		this.clear();
-
-		if (list != null)
-		{
-			list.setMaterialListEntries(entries);
-		}
-
-		this.warnAboutSkippedChunks(totals);
 	}
 }

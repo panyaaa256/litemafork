@@ -4,15 +4,18 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import fi.dy.masa.malilib.gui.GuiBase;
+import fi.dy.masa.malilib.gui.Message.MessageType;
 import fi.dy.masa.malilib.util.InfoUtils;
 import net.minecraft.util.Mth;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import fi.dy.masa.litematica.network.task.MaterialListTaskSessionBase;
 import fi.dy.masa.litematica.util.BlockInfoListType;
 import fi.dy.masa.litematica.util.InclusionType;
 import fi.dy.masa.malilib.interfaces.ICompletionListener;
@@ -123,6 +126,41 @@ public abstract class MaterialListBase implements IMaterialList
      * by starting a new task, if applicable.
      */
     public abstract void reCreateMaterialList();
+
+    /**
+     * Hands the counting to a server side session, which is not limited to the chunks
+     * loaded within the render distance and can read the contents of containers.
+     * <p>
+     * A server that cannot do it warns and declines, so that the caller still runs its
+     * local task: the list a player gets then is the one they would have got without the
+     * option. Any earlier server run for this list is abandoned in that case, since its
+     * result would land on top of the local count and replace it.
+     *
+     * @return true when the server has been asked, and the caller should not count locally
+     */
+    protected boolean startServerTask(boolean enabled, MaterialListTaskSessionBase session, BooleanSupplier start,
+                                      String noSupportKey, String requestedKey)
+    {
+        if (enabled)
+        {
+            if (session.isSupportedByServer() == false)
+            {
+                InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, noSupportKey);
+            }
+            else if (start.getAsBoolean())
+            {
+                InfoUtils.showGuiOrInGameMessage(MessageType.INFO, requestedKey);
+                return true;
+            }
+        }
+
+        if (session.isActiveFor(this))
+        {
+            session.cancel();
+        }
+
+        return false;
+    }
 
     @Override
     public void setMaterialListEntries(List<MaterialListEntry> list)
@@ -235,14 +273,20 @@ public abstract class MaterialListBase implements IMaterialList
         return this.countMismatched;
     }
 
+    /** The upstream form: changes the type without telling the player about it. */
+    public void setMaterialListType(BlockInfoListType type)
+    {
+        this.setMaterialListType(type, false);
+    }
+
     public void setMaterialListType(BlockInfoListType type, boolean printMessage)
     {
         this.materialListType = type;
-        if (printMessage) {
-            String val = GuiBase.TXT_GREEN + type.getDisplayName();
-            InfoUtils.printActionbarMessage("litematica.message.material_list.list_type_set", val);
-        }
 
+        if (printMessage)
+        {
+            InfoUtils.printActionbarMessage("litematica.message.material_list.list_type_set", GuiBase.TXT_GREEN + type.getDisplayName());
+        }
     }
 
     public void setEntitiesInclusionType(InclusionType type)
@@ -274,7 +318,7 @@ public abstract class MaterialListBase implements IMaterialList
     {
         if (JsonUtils.hasString(obj, "type"))
         {
-            this.setMaterialListType(BlockInfoListType.fromStringStatic(JsonUtils.getString(obj, "type")), false);
+            this.setMaterialListType(BlockInfoListType.fromStringStatic(JsonUtils.getString(obj, "type")));
         }
 
         if (JsonUtils.hasString(obj, "sort_criteria"))

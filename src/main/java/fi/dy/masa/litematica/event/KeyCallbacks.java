@@ -529,6 +529,7 @@ public class KeyCallbacks
             else if (key == Hotkeys.TOGGLE_MATERIAL_LIST_INFO.getKeybind())
             {
                 MaterialListBase materialList = DataManager.getMaterialList();
+
                 if (materialList == null)
                 {
                     SchematicPlacement schematicPlacement = DataManager.getSchematicPlacementManager().getSelectedSchematicPlacement();
@@ -544,9 +545,12 @@ public class KeyCallbacks
                         InfoUtils.showGuiOrInGameMessage(MessageType.ERROR, "litematica.message.error.no_placement_selected");
                     }
                 }
-                if (materialList != null) {
+
+                if (materialList != null)
+                {
                     MaterialListHudRenderer renderer = materialList.getHudRenderer();
                     renderer.toggleShouldRender();
+
                     if (renderer.getShouldRenderCustom())
                     {
                         InfoHud.getInstance().addInfoHudRenderer(renderer, true);
@@ -556,23 +560,29 @@ public class KeyCallbacks
                         InfoHud.getInstance().removeInfoHudRenderersOfType(renderer.getClass(), true);
                     }
                 }
+
                 return true;
             }
             else if (key == Hotkeys.TOGGLE_MATERIAL_LIST_TYPE.getKeybind())
             {
                 MaterialListBase materialList = DataManager.getMaterialList();
-                if (materialList == null) {
-                    return true;
+
+                if (materialList != null)
+                {
+                    // The GUI only offers the list type for lists that can honour it; a
+                    // schematic's list has no render layers to show
+                    if (materialList.supportsRenderLayers())
+                    {
+                        BlockInfoListType type = materialList.getMaterialListType();
+                        materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);
+                        materialList.reCreateMaterialList();
+                    }
+                    else
+                    {
+                        InfoUtils.printActionbarMessage("litematica.message.warn.material_list.render_layers_not_supported");
+                    }
                 }
-                // The GUI only offers the list type for lists that can honour it; a
-                // schematic's list has no render layers to show
-                if (materialList.supportsRenderLayers() == false) {
-                    InfoUtils.printActionbarMessage("litematica.message.warn.material_list.render_layers_not_supported");
-                    return true;
-                }
-                BlockInfoListType type = materialList.getMaterialListType();
-                materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);
-                materialList.reCreateMaterialList();
+
                 return true;
             }
             else if (key == Hotkeys.CLONE_SELECTION.getKeybind())

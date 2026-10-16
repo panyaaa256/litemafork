@@ -102,33 +102,13 @@ public class ContentsMismatch
         return this.expectedContentsKey;
     }
 
-    /** Every stack of one container as "slot: id xN components", in a fixed order. */
+    /** Every stack of one container as "slot: item xN", in a fixed order. */
     private static String contentsKeyOf(CompoundTag tag)
     {
-        ListTag items = tag.getListOrEmpty(ITEMS_KEY);
         List<String> stacks = new ArrayList<>();
 
-        for (int i = 0; i < items.size(); i++)
-        {
-            CompoundTag stack = items.getCompound(i).orElse(null);
-
-            if (stack == null)
-            {
-                continue;
-            }
-
-            int count = stack.getIntOr(COUNT_KEY, 1);
-
-            if (count <= 0)
-            {
-                continue;
-            }
-
-            Tag components = stack.get(COMPONENTS_KEY);
-
-            stacks.add(stack.getIntOr(SLOT_KEY, i) + ": " + stack.getStringOr(ID_KEY, "") + " x" + count +
-                       (components != null ? " " + components : ""));
-        }
+        forEachStack(tag.getListOrEmpty(ITEMS_KEY), (slot, stack, count) ->
+                stacks.add(slot + ": " + keyOf(stack, true) + " x" + count));
 
         // The order the stacks happen to be stored in says nothing about the contents
         Collections.sort(stacks);
@@ -240,22 +220,15 @@ public class ContentsMismatch
 
     private void markExcess(ListTag items, Map<String, Integer> totals, Map<String, Integer> otherTotals, Set<Integer> out)
     {
-        for (int i = 0; i < items.size(); i++)
+        forEachStack(items, (slot, stack, count) ->
         {
-            CompoundTag stack = items.getCompound(i).orElse(null);
-
-            if (stack == null)
-            {
-                continue;
-            }
-
-            String key = this.keyOf(stack);
+            String key = keyOf(stack, this.strict);
 
             if (totals.getOrDefault(key, 0) > otherTotals.getOrDefault(key, 0))
             {
-                out.add(stack.getIntOr(SLOT_KEY, i));
+                out.add(slot);
             }
-        }
+        });
     }
 
     /** item key -> total count, ignoring which slot each stack sits in; as Servux compares. */
@@ -263,22 +236,7 @@ public class ContentsMismatch
     {
         Map<String, Integer> counts = new HashMap<>();
 
-        for (int i = 0; i < items.size(); i++)
-        {
-            CompoundTag stack = items.getCompound(i).orElse(null);
-
-            if (stack == null)
-            {
-                continue;
-            }
-
-            int count = stack.getIntOr(COUNT_KEY, 1);
-
-            if (count > 0)
-            {
-                counts.merge(this.keyOf(stack), count, Integer::sum);
-            }
-        }
+        forEachStack(items, (slot, stack, count) -> counts.merge(keyOf(stack, this.strict), count, Integer::sum));
 
         return counts;
     }
@@ -288,6 +246,17 @@ public class ContentsMismatch
     {
         Map<Integer, String> slots = new HashMap<>();
 
+        forEachStack(items, (slot, stack, count) -> slots.put(slot, keyOf(stack, this.strict) + " x" + count));
+
+        return slots;
+    }
+
+    /**
+     * Hands every stack of an "Items" list to the reader, with the slot it sits in. The
+     * stacks that hold nothing are left out: an empty slot is not contents.
+     */
+    private static void forEachStack(ListTag items, StackReader reader)
+    {
         for (int i = 0; i < items.size(); i++)
         {
             CompoundTag stack = items.getCompound(i).orElse(null);
@@ -301,19 +270,17 @@ public class ContentsMismatch
 
             if (count > 0)
             {
-                slots.put(stack.getIntOr(SLOT_KEY, i), this.keyOf(stack) + " x" + count);
+                reader.read(stack.getIntOr(SLOT_KEY, i), stack, count);
             }
         }
-
-        return slots;
     }
 
     /** The item id, plus the data components when compared strictly. */
-    private String keyOf(CompoundTag stack)
+    private static String keyOf(CompoundTag stack, boolean strict)
     {
         String id = stack.getStringOr(ID_KEY, "");
 
-        if (this.strict == false)
+        if (strict == false)
         {
             return id;
         }
@@ -321,5 +288,12 @@ public class ContentsMismatch
         Tag components = stack.get(COMPONENTS_KEY);
 
         return components != null ? id + Objects.toString(components) : id;
+    }
+
+    /** One stack of an "Items" list, and the slot it sits in. */
+    @FunctionalInterface
+    private interface StackReader
+    {
+        void read(int slot, CompoundTag stack, int count);
     }
 }
