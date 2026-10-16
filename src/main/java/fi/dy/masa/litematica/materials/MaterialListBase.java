@@ -240,7 +240,7 @@ public abstract class MaterialListBase implements IMaterialList
         this.materialListType = type;
         if (printMessage) {
             String val = GuiBase.TXT_GREEN + type.getDisplayName();
-            InfoUtils.printActionbarMessage("malilib.message.set_layer_mode_to", val);
+            InfoUtils.printActionbarMessage("litematica.message.material_list.list_type_set", val);
         }
 
     }
