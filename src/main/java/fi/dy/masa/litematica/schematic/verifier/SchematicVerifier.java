@@ -178,10 +178,12 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     }
 
     /**
-     * A server run schedules no task, but its results can still get unseen entities: a missing
-     * entity that was placed afterwards goes unseen once the player walks out of its tracking
-     * range. Those are checked here at the rate a local run's task checks its own, so that one
-     * broken meanwhile turns into missing once the player is back.
+     * A server run schedules no task, but its results still have to be kept up to date the way
+     * the task keeps a local run's: a block fixed or broken after the run is rechecked, and a
+     * missing entity that was placed afterwards goes unseen once the player walks out of its
+     * tracking range. Both are checked here at the rate a local run's task checks its own, so
+     * that a fixed block drops off the list, and an entity broken meanwhile turns into missing
+     * once the player is back.
      */
     public static void onClientTick()
     {
@@ -197,6 +199,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         {
             if (activeVerifier.serverMode)
             {
+                activeVerifier.checkChangedPositions(profiler);
                 activeVerifier.checkUnseenEntities(profiler);
             }
         }
@@ -1076,6 +1079,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.serverUnreadableChunks = Math.max(0, this.serverChunksTotal - this.serverChunksDone);
         this.verificationActive = false;
         this.finished = true;
+
+        // What did arrive is the result now, so it is highlighted like any other
+        this.updateMismatchOverlays();
         this.notifyListener();
     }
 
@@ -1210,12 +1216,29 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                 if (isLoadedClient && isLoadedSchematic)
                 {
                     BlockMismatch mismatch = this.blockMismatches.get(pos);
+                    BlockState stateFound = this.worldClient.getBlockState(pos);
+
+                    // The client is never told what is inside a container, so it cannot tell a
+                    // Wrong Contents result from a correct one. As long as the block itself is
+                    // still the one the server compared, the server's result stands - also
+                    // through a state change such as a barrel being opened to fix it.
+                    if (mismatch != null && mismatch.mismatchType == MismatchType.WRONG_NBT &&
+                        stateFound.getBlock() == mismatch.stateFound.getBlock())
+                    {
+                        iter.remove();
+                        continue;
+                    }
 
                     if (mismatch != null)
                     {
                         this.blockMismatches.remove(pos);
 
-                        BlockState stateFound = this.worldClient.getBlockState(pos);
+                        if (mismatch.mismatchType == MismatchType.WRONG_NBT)
+                        {
+                            // A different block now; whatever the contents were, they are gone
+                            this.wrongContents.remove(pos);
+                        }
+
                         MUTABLE_PAIR.setLeft(mismatch.stateExpected);
                         MUTABLE_PAIR.setRight(mismatch.stateFound);
 
@@ -1230,7 +1253,6 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
                     else
                     {
                         BlockState stateExpected = this.worldSchematic.getBlockState(pos);
-                        BlockState stateFound = this.worldClient.getBlockState(pos);
                         this.checkBlockStates(pos.getX(), pos.getY(), pos.getZ(), stateExpected, stateFound);
                     }
 

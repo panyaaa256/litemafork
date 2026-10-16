@@ -11,6 +11,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
+import fi.dy.masa.malilib.util.position.IntBoundingBox;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.materials.IMaterialList;
@@ -63,16 +64,39 @@ public class TaskCountBlocksPlacement extends TaskCountBlocksBase
     @Override
     protected void countEntitiesInChunk(ChunkPos pos)
     {
+        // The schematic world holds every placement's entities, and those of the sub regions
+        // left out of this one too. Only the entities within the boxes the blocks are counted
+        // in belong to this list, and within the render layers the blocks are clamped to.
+        List<IntBoundingBox> boxes = this.getBoxesInChunk(pos);
         List<Entity> entities = this.schematicWorld.getEntitiesByChunk(pos.x(), pos.z(), EntityUtils.NOT_PLAYER);
 
         for (Entity entity : entities)
         {
-            // The blocks of this list are clamped to the render layers, so its entities are too
-            if (this.layerRange.isPositionWithinRange(Mth.floor(entity.getX()), Mth.floor(entity.getY()), Mth.floor(entity.getZ())))
+            final int x = Mth.floor(entity.getX());
+            final int y = Mth.floor(entity.getY());
+            final int z = Mth.floor(entity.getZ());
+
+            if (isWithinAnyBox(boxes, x, y, z) && this.layerRange.isPositionWithinRange(x, y, z))
             {
                 this.countEntity(entity);
             }
         }
+    }
+
+    /** Checked against each box once, so that an entity where two boxes overlap is counted once. */
+    private static boolean isWithinAnyBox(List<IntBoundingBox> boxes, int x, int y, int z)
+    {
+        for (IntBoundingBox box : boxes)
+        {
+            if (x >= box.minX() && x <= box.maxX() &&
+                y >= box.minY() && y <= box.maxY() &&
+                z >= box.minZ() && z <= box.maxZ())
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     @Override
