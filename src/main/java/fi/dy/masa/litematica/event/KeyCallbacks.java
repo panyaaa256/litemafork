@@ -567,17 +567,20 @@ public class KeyCallbacks
             {
                 MaterialListBase materialList = DataManager.getMaterialList();
 
-                // The GUI only offers the list type for lists that can honour it; a
-                // schematic's list has no render layers to show
-                if (materialList != null && materialList.supportsRenderLayers() == false)
+                if (materialList != null)
                 {
-                    InfoUtils.printActionbarMessage("litematica.message.warn.material_list.render_layers_not_supported");
-                }
-                else if (materialList != null)
-                {
-                    BlockInfoListType type = materialList.getMaterialListType();
-                    materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);
-                    materialList.reCreateMaterialList();
+                    // The GUI only offers the list type for lists that can honour it; a
+                    // schematic's list has no render layers to show
+                    if (materialList.supportsRenderLayers())
+                    {
+                        BlockInfoListType type = materialList.getMaterialListType();
+                        materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);
+                        materialList.reCreateMaterialList();
+                    }
+                    else
+                    {
+                        InfoUtils.printActionbarMessage("litematica.message.warn.material_list.render_layers_not_supported");
+                    }
                 }
 
                 return true;
