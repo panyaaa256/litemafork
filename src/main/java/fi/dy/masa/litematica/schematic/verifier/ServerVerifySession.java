@@ -5,9 +5,10 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.Message.MessageType;
@@ -21,6 +22,7 @@ import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.data.EntityDataManager;
 import fi.dy.masa.litematica.network.task.ServerTaskSessionBase;
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
+import fi.dy.masa.litematica.util.EntityUtils;
 
 /**
  * Client half of a server side verification.
@@ -97,13 +99,14 @@ public class ServerVerifySession extends ServerTaskSessionBase
 		this.verifier = verifier;
 
 		CompoundData nbt = placement.toData(true);
+		final boolean checkEntities = isCheckingEntities();
 		// Off unless asked for; the server's verify_nbt still decides whether it is allowed
 		nbt.putBoolean("VerifyNbt", Configs.Generic.VERIFIER_CHECK_CONTENTS.getBooleanValue());
 		// The same rules and tolerance as a local run, so that both find the same entities missing
-		nbt.putBoolean("VerifyEntities", isCheckingEntities());
+		nbt.putBoolean("VerifyEntities", checkEntities);
 		nbt.putDouble("EntityTolerance", Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue());
 		// Which world entity each found one is, so that it is not taken for a missing one later
-		nbt.putBoolean("ReportMatchedEntities", isCheckingEntities());
+		nbt.putBoolean("ReportMatchedEntities", checkEntities);
 
 		Litematica.debugLog("ServerVerifySession: requesting verification of '{}' (session {})", placement.getName(), this.sessionId);
 
@@ -231,13 +234,12 @@ public class ServerVerifySession extends ServerTaskSessionBase
 		for (int i = 0; matched != null && i < matched.size(); i++)
 		{
 			CompoundData entry = matched.getCompoundAt(i);
-			UUID worldEntity = entry != null ? uuidFromIntArray(entry.getIntArray("UUID")) : null;
+			EntityType<?> type = readEntityType(entry);
+			UUID worldEntity = type != null ? uuidFromIntArray(entry.getIntArray("UUID")) : null;
 
-			if (worldEntity != null && entry.contains("Type", Constants.NBT.TAG_STRING))
+			if (worldEntity != null)
 			{
-				this.verifier.addServerMatchedEntity(entry.getString("Type"),
-				                                     new Vec3(entry.getDouble("X"), entry.getDouble("Y"), entry.getDouble("Z")),
-				                                     worldEntity);
+				this.verifier.addServerMatchedEntity(type, readEntityPos(entry), worldEntity);
 			}
 		}
 
@@ -247,11 +249,11 @@ public class ServerVerifySession extends ServerTaskSessionBase
 		for (int i = 0; entities != null && i < entities.size(); i++)
 		{
 			CompoundData entry = entities.getCompoundAt(i);
+			EntityType<?> type = readEntityType(entry);
 
-			if (entry != null && entry.contains("Type", Constants.NBT.TAG_STRING))
+			if (type != null)
 			{
-				this.verifier.addServerMissingEntity(entry.getString("Type"),
-				                                     new Vec3(entry.getDouble("X"), entry.getDouble("Y"), entry.getDouble("Z")));
+				this.verifier.addServerMissingEntity(type, readEntityPos(entry));
 			}
 		}
 
@@ -270,5 +272,17 @@ public class ServerVerifySession extends ServerTaskSessionBase
 		{
 			this.clear();
 		}
+	}
+
+	/** The type of an entity entry, or null for a malformed entry or a type this client does not know. */
+	@Nullable
+	private static EntityType<?> readEntityType(@Nullable CompoundData entry)
+	{
+		return entry != null && entry.contains("Type", Constants.NBT.TAG_STRING) ? EntityUtils.getEntityTypeById(entry.getString("Type")) : null;
+	}
+
+	private static Vec3 readEntityPos(CompoundData entry)
+	{
+		return new Vec3(entry.getDouble("X"), entry.getDouble("Y"), entry.getDouble("Z"));
 	}
 }

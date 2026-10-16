@@ -1,6 +1,7 @@
 package fi.dy.masa.litematica.schematic.verifier;
 
 import java.util.*;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
@@ -16,7 +17,6 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.profiling.Profiler;
 import net.minecraft.util.profiling.ProfilerFiller;
@@ -30,6 +30,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -256,7 +257,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             return false;
         }
 
-        final double tolerance = Math.max(Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue(), 0.001);
+        final double tolerance = Math.max(getEntityTolerance(), 0.001);
         MissingEntityEntry paired = this.entityHighlightsByUuid.get(entity.getUUID());
 
         // Checked again, as the UUID may have moved on to another placement's copy
@@ -829,17 +830,12 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
      * an entity that turns up within the tolerance later is taken off the list again by
      * {@link #onClientEntityAdded(Entity)}.
      */
-    public void addServerMissingEntity(String entityId, Vec3 pos)
+    public void addServerMissingEntity(EntityType<?> type, Vec3 pos)
     {
-        Identifier id = Identifier.tryParse(entityId);
-        EntityType<?> type = id != null ? BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null) : null;
-
-        if (type == null || this.checkEntities == false)
+        if (this.checkEntities)
         {
-            return;
+            this.fileServerMissingEntity(type, pos);
         }
-
-        this.fileServerMissingEntity(type, pos);
     }
 
     /**
@@ -866,14 +862,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
         UUID uuid = schematicEntity != null ? schematicEntity.getUUID() : null;
         MissingEntityEntry entry = new MissingEntityEntry(type, uuid, pos);
-        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
-        Entity match = this.worldClient != null ? this.findMatchingClientEntity(type, pos, tolerance) : null;
 
-        if (match != null)
-        {
-            this.matchEntity(match, entry);
-        }
-        else
+        if (this.matchClientEntity(entry) == false)
         {
             this.missingEntitiesPositions.put(type, entry);
         }
@@ -887,12 +877,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
      * minecarts placed in the same spot for the other, missing one - and it being broken
      * would go unnoticed.
      */
-    public void addServerMatchedEntity(String entityId, Vec3 pos, UUID worldEntity)
+    public void addServerMatchedEntity(EntityType<?> type, Vec3 pos, UUID worldEntity)
     {
-        Identifier id = Identifier.tryParse(entityId);
-        EntityType<?> type = id != null ? BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null) : null;
-
-        if (type == null || this.checkEntities == false)
+        if (this.checkEntities == false)
         {
             return;
         }
@@ -928,28 +915,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     @Nullable
     private Entity findSchematicEntity(EntityType<?> type, Vec3 pos)
     {
-        if (this.worldSchematic == null)
-        {
-            return null;
-        }
-
-        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
-        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
-        Entity closest = null;
-        double closestDistSq = Double.MAX_VALUE;
-
-        for (Entity candidate : this.worldSchematic.getEntities((Entity) null, searchBox, e -> e.getType() == type))
-        {
-            double distSq = candidate.position().distanceToSqr(pos);
-
-            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
-            {
-                closestDistSq = distSq;
-                closest = candidate;
-            }
-        }
-
-        return closest;
+        return this.worldSchematic != null ? findClosestEntity(this.worldSchematic, type, pos, e -> true) : null;
     }
 
     /**
@@ -1065,18 +1031,23 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             InfoUtils.showGuiOrInGameMessage(MessageType.WARNING, "litematica.message.warn.verifier.server_result_truncated");
         }
 
-        this.verificationActive = false;
-        this.finished = true;
-
-        this.updateMismatchOverlays();
-        this.notifyListener();
+        this.endServerRun();
     }
 
-    /** The server could not run the verification; drop back out of server mode. */
+    /**
+     * The server run ended before its final batch: it failed, was stopped, or was dropped for
+     * another placement's. A server run cannot be resumed - the server has dropped it, and there
+     * is no local task to carry on with - so it ends here, with what arrived so far.
+     */
     public void onServerFailed()
     {
         // Whatever the server did not get to was never checked
         this.serverUnreadableChunks = Math.max(0, this.serverChunksTotal - this.serverChunksDone);
+        this.endServerRun();
+    }
+
+    private void endServerRun()
+    {
         this.verificationActive = false;
         this.finished = true;
 
@@ -1098,19 +1069,10 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         if (this.serverMode && this.finished == false)
         {
-            // Otherwise the server keeps walking chunks for a result nobody wants
+            // Otherwise the server keeps walking chunks for a result nobody wants. Left
+            // "paused", Resume would set it active again with nothing to ever finish it.
             ServerVerifySession.getInstance().cancel();
-
-            // A server run cannot be resumed: the server has dropped it, and there is no
-            // local task to carry on with. Left "paused", Resume would set it active again
-            // with nothing to ever finish it. It ends here instead, with what arrived so far
-            // as its result and the chunks the server did not get to as unseen.
-            this.serverUnreadableChunks = Math.max(0, this.serverChunksTotal - this.serverChunksDone);
-            this.verificationActive = false;
-            this.finished = true;
-
-            this.updateMismatchOverlays();
-            this.notifyListener();
+            this.onServerFailed();
         }
 
         this.verificationActive = false;
@@ -1610,40 +1572,29 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             }
         }
 
-        this.verifyEntitiesInBox(schematicEntities, startX, startY, startZ, endX, endY, endZ);
+        this.verifyEntitiesInBox(schematicEntities, new IntBoundingBox(startX, startY, startZ, endX, endY, endZ));
 
         return true;
     }
 
-    private void verifyEntitiesInBox(List<Entity> schematicEntities, int startX, int startY, int startZ, int endX, int endY, int endZ)
+    private void verifyEntitiesInBox(List<Entity> schematicEntities, IntBoundingBox box)
     {
         if (this.checkEntities == false)
         {
             return;
         }
 
-        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
-
         for (Entity schematicEntity : schematicEntities)
         {
-            int x = (int) Math.floor(schematicEntity.getX());
-            int y = (int) Math.floor(schematicEntity.getY());
-            int z = (int) Math.floor(schematicEntity.getZ());
-
-            if (x < startX || x > endX || y < startY || y > endY || z < startZ || z > endZ)
+            if (box.contains(schematicEntity.blockPosition()) == false)
             {
                 continue;
             }
 
             MissingEntityEntry entry = new MissingEntityEntry(schematicEntity.getType(), schematicEntity.getUUID(), schematicEntity.position());
             this.cacheEntityMismatchStack(schematicEntity);
-            Entity match = this.findMatchingClientEntity(schematicEntity.getType(), schematicEntity.position(), tolerance);
 
-            if (match != null)
-            {
-                this.matchEntity(match, entry);
-            }
-            else
+            if (this.matchClientEntity(entry) == false)
             {
                 this.fileUnmatchedEntity(entry);
             }
@@ -1660,12 +1611,26 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         return this.checkEntities && (this.verificationStarted || this.finished);
     }
 
-    /** Remembers which client world entity a schematic entity was found as. */
-    private void matchEntity(Entity match, MissingEntityEntry entry)
+    /**
+     * Pairs a schematic entity with the client world entity that stands for it, if there is a
+     * free one within the tolerance.
+     *
+     * @return false if there is none, and the entry is left for the caller to file
+     */
+    private boolean matchClientEntity(MissingEntityEntry entry)
     {
-        this.matchEntity(match.getUUID(), entry);
+        Entity match = this.worldClient != null ? this.findMatchingClientEntity(entry.entityType, entry.pos) : null;
+
+        if (match != null)
+        {
+            this.matchEntity(match.getUUID(), entry);
+            return true;
+        }
+
+        return false;
     }
 
+    /** Remembers which client world entity a schematic entity was found as. */
     private void matchEntity(UUID match, MissingEntityEntry entry)
     {
         this.usedClientEntityUuids.add(match);
@@ -1731,7 +1696,6 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
 
         profiler.push("verify_unseen_entities");
 
-        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
         Iterator<Map.Entry<EntityType<?>, MissingEntityEntry>> iter = this.unseenEntitiesPositions.entries().iterator();
         boolean changed = false;
 
@@ -1747,16 +1711,10 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             iter.remove();
             changed = true;
 
-            Entity match = this.findMatchingClientEntity(entry.entityType, entry.pos, tolerance);
-
-            if (match != null)
+            // Seen but not there. If its spawn packet is merely late, onClientEntityAdded()
+            // takes it back out
+            if (this.matchClientEntity(entry) == false)
             {
-                this.matchEntity(match, entry);
-            }
-            else
-            {
-                // Seen but not there. If its spawn packet is merely late, onClientEntityAdded()
-                // takes it back out
                 this.missingEntitiesPositions.put(entry.entityType, entry);
             }
         }
@@ -1776,23 +1734,26 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
      * their own counterpart in the client world.
      */
     @Nullable
-    private Entity findMatchingClientEntity(EntityType<?> type, Vec3 pos, double tolerance)
+    private Entity findMatchingClientEntity(EntityType<?> type, Vec3 pos)
     {
-        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
-        List<Entity> candidates = this.worldClient.getEntities((Entity) null, searchBox,
-                e -> e.getType() == type &&
-                     isVerifiableEntity(e) &&
-                     this.usedClientEntityUuids.contains(e.getUUID()) == false &&
-                     e.position().distanceTo(pos) <= tolerance);
+        return findClosestEntity(this.worldClient, type, pos,
+                                 e -> isVerifiableEntity(e) && this.usedClientEntityUuids.contains(e.getUUID()) == false);
+    }
 
+    /** The entity of this type in the world closest to pos, within the position tolerance. */
+    @Nullable
+    private static Entity findClosestEntity(Level world, EntityType<?> type, Vec3 pos, Predicate<Entity> filter)
+    {
+        final double tolerance = getEntityTolerance();
+        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
         Entity closest = null;
         double closestDistSq = Double.MAX_VALUE;
 
-        for (Entity candidate : candidates)
+        for (Entity candidate : world.getEntities((Entity) null, searchBox, e -> e.getType() == type && filter.test(e)))
         {
             double distSq = candidate.position().distanceToSqr(pos);
 
-            if (distSq < closestDistSq)
+            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
             {
                 closestDistSq = distSq;
                 closest = candidate;
@@ -1800,6 +1761,11 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
 
         return closest;
+    }
+
+    private static double getEntityTolerance()
+    {
+        return Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
     }
 
     private void cacheEntityMismatchStack(Entity schematicEntity)
@@ -1843,7 +1809,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             return;
         }
 
-        final double tolerance = Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue();
+        final double tolerance = getEntityTolerance();
         ArrayListMultimap<EntityType<?>, MissingEntityEntry> closestMap = null;
         MissingEntityEntry closest = null;
         double closestDistSq = Double.MAX_VALUE;
@@ -1866,7 +1832,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         if (closest != null)
         {
             closestMap.remove(entity.getType(), closest);
-            this.matchEntity(entity, closest);
+            this.matchEntity(entity.getUUID(), closest);
             this.updateMismatchOverlays();
         }
     }
@@ -2075,7 +2041,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
             BlockPos pos = BlockPos.containing(entry.pos);
             this.entityHighlightsBySection.computeIfAbsent(SectionPos.asLong(pos), k -> new ArrayList<>()).add(entry);
 
-            this.entityMismatchPositionsForRender.add(new MismatchRenderPos(MismatchType.MISSING_ENTITY, BlockPos.containing(entry.pos)));
+            this.entityMismatchPositionsForRender.add(new MismatchRenderPos(MismatchType.MISSING_ENTITY, pos));
         }
 
         this.entityMismatchPositionsForRender.sort(new RenderPosComparator(centerPos, true));
