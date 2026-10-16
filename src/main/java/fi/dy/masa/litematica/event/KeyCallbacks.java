@@ -567,7 +567,13 @@ public class KeyCallbacks
             {
                 MaterialListBase materialList = DataManager.getMaterialList();
 
-                if (materialList != null)
+                // The GUI only offers the list type for lists that can honour it; a
+                // schematic's list has no render layers to show
+                if (materialList != null && materialList.supportsRenderLayers() == false)
+                {
+                    InfoUtils.printActionbarMessage("litematica.message.warn.material_list.render_layers_not_supported");
+                }
+                else if (materialList != null)
                 {
                     BlockInfoListType type = materialList.getMaterialListType();
                     materialList.setMaterialListType((BlockInfoListType) type.cycle(true), true);

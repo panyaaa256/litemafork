@@ -286,7 +286,7 @@ public abstract class MaterialListBase implements IMaterialList
 
         if (printMessage)
         {
-            InfoUtils.printActionbarMessage("malilib.message.set_layer_mode_to", GuiBase.TXT_GREEN + type.getDisplayName());
+            InfoUtils.printActionbarMessage("litematica.message.material_list.list_type_set", GuiBase.TXT_GREEN + type.getDisplayName());
         }
     }
 
