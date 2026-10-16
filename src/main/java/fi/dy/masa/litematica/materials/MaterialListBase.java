@@ -240,7 +240,7 @@ public abstract class MaterialListBase implements IMaterialList
         this.materialListType = type;
         if (printMessage) {
             String val = GuiBase.TXT_GREEN + type.getDisplayName();
-            InfoUtils.printActionbarMessage("malilib.message.set_layer_mode_to", val);
+            InfoUtils.printActionbarMessage("litematica.message.material_list.list_type_set", val);
         }
 
     }
@@ -264,6 +264,8 @@ public abstract class MaterialListBase implements IMaterialList
         obj.add("sort_reverse", new JsonPrimitive(this.reverse));
         obj.add("hide_available", new JsonPrimitive(this.hideAvailable));
         obj.add("multiplier", new JsonPrimitive(this.multiplier));
+        obj.add("entities_inclusion_type", new JsonPrimitive(this.entitiesInclusionType.getStringValue()));
+        obj.add("containers_inclusion_type", new JsonPrimitive(this.containersInclusionType.getStringValue()));
 
         return obj;
     }
@@ -283,6 +285,17 @@ public abstract class MaterialListBase implements IMaterialList
         this.reverse = JsonUtils.getBooleanOrDefault(obj, "sort_reverse", false);
         this.hideAvailable = JsonUtils.getBooleanOrDefault(obj, "hide_available", false);
         this.multiplier = JsonUtils.getIntegerOrDefault(obj, "multiplier", 1);
+
+        // Absent from a list saved before these existed, which then counts blocks only, as it did
+        if (JsonUtils.hasString(obj, "entities_inclusion_type"))
+        {
+            this.entitiesInclusionType = InclusionType.fromStringStatic(JsonUtils.getString(obj, "entities_inclusion_type"));
+        }
+
+        if (JsonUtils.hasString(obj, "containers_inclusion_type"))
+        {
+            this.containersInclusionType = InclusionType.fromStringStatic(JsonUtils.getString(obj, "containers_inclusion_type"));
+        }
     }
 
     public enum SortCriteria
