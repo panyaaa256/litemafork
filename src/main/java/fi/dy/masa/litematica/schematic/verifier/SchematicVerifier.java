@@ -1079,6 +1079,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         this.serverUnreadableChunks = Math.max(0, this.serverChunksTotal - this.serverChunksDone);
         this.verificationActive = false;
         this.finished = true;
+
+        // What did arrive is the result now, so it is highlighted like any other
+        this.updateMismatchOverlays();
         this.notifyListener();
     }
 
