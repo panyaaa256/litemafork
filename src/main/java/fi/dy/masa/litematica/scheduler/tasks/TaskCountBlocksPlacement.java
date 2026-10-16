@@ -4,7 +4,6 @@ import java.util.Collection;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.util.Mth;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
@@ -72,31 +71,14 @@ public class TaskCountBlocksPlacement extends TaskCountBlocksBase
 
         for (Entity entity : entities)
         {
-            final int x = Mth.floor(entity.getX());
-            final int y = Mth.floor(entity.getY());
-            final int z = Mth.floor(entity.getZ());
+            BlockPos entityPos = entity.blockPosition();
 
-            if (isWithinAnyBox(boxes, x, y, z) && this.layerRange.isPositionWithinRange(x, y, z))
+            // Any box will do, so that an entity where two boxes overlap is counted once
+            if (boxes.stream().anyMatch(box -> box.containsPos(entityPos)) && this.layerRange.isPositionWithinRange(entityPos))
             {
                 this.countEntity(entity);
             }
         }
-    }
-
-    /** Checked against each box once, so that an entity where two boxes overlap is counted once. */
-    private static boolean isWithinAnyBox(List<IntBoundingBox> boxes, int x, int y, int z)
-    {
-        for (IntBoundingBox box : boxes)
-        {
-            if (x >= box.minX() && x <= box.maxX() &&
-                y >= box.minY() && y <= box.maxY() &&
-                z >= box.minZ() && z <= box.maxZ())
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     @Override
