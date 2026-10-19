@@ -1,5 +1,7 @@
 package fi.dy.masa.litematica.schematic.conversion;
 
+import java.util.List;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.RegistryAccess;
@@ -27,7 +29,6 @@ import fi.dy.masa.litematica.world.SchematicWorldHandler;
 public class SchematicConversionFixers
 {
     private static final BooleanProperty[] HORIZONTAL_CONNECTING_BLOCK_PROPS = new BooleanProperty[] { null, null, CrossCollisionBlock.NORTH, CrossCollisionBlock.SOUTH, CrossCollisionBlock.WEST, CrossCollisionBlock.EAST };
-    private static final BlockState REDSTONE_WIRE_DOT_OLD = Blocks.REDSTONE_WIRE.defaultBlockState();
     private static final BlockState REDSTONE_WIRE_DOT = Blocks.REDSTONE_WIRE.defaultBlockState()
                           .setValue(RedStoneWireBlock.POWER, 0)
                           .setValue(RedStoneWireBlock.NORTH, RedstoneSide.NONE)
@@ -157,7 +158,7 @@ public class SchematicConversionFixers
         return state;
     };
 
-    public static final IStateFixer FIXER_CHRORUS_PLANT = (reader, state, pos) -> ChorusPlantBlock.getStateWithConnections(reader, pos, state);
+    public static final IStateFixer FIXER_CHORUS_PLANT = (reader, state, pos) -> ChorusPlantBlock.getStateWithConnections(reader, pos, state);
 
     public static final IStateFixer FIXER_DIRT_SNOWY = (reader, state, pos) -> {
         Block block = reader.getBlockState(pos.above()).getBlock();
@@ -323,24 +324,28 @@ public class SchematicConversionFixers
         return state.setValue(RepeaterBlock.LOCKED, Boolean.valueOf(getIsRepeaterPoweredOnSide(reader, pos, state)));
     };
 
-    public static final IStateFixer FIXER_REDSTONE_WIRE = (reader, state, pos) -> {
+    public static final IStateFixer FIXER_REDSTONE_CROSS = (reader, state, pos) -> {
+        // Turn all old dots into crosses, while keeping the power level (v2531)
+        if (state.setValue(RedStoneWireBlock.POWER, 0) == REDSTONE_WIRE_DOT)
+        {
+            state = REDSTONE_WIRE_CROSS.setValue(RedStoneWireBlock.POWER, state.getValue(RedStoneWireBlock.POWER));
+        }
+
+        return state;
+    };
+
+    // Recompute blockstate of redstone wire, since it did not store sides before the flattening, and then apply cross fixer
+    public static final IStateFixer FIXER_REDSTONE_WIRE_ADJACENCY = (reader, state, pos) -> {
         RedStoneWireBlock wire = (RedStoneWireBlock) state.getBlock();
         BlockState stateAdj = ((IMixinRedstoneWireBlock) wire).litematica_GetPlacementState(reader, state, pos);
 
-        if (stateAdj.equals(state) == false)
-        {
-            // Vanilla breaks Redstone connections when it doesn't detect the neighbor being powered
-            stateAdj = state;
-        }
-        // Turn all old dots into crosses, while keeping the power level
-        if (stateAdj.equals(REDSTONE_WIRE_DOT) == false && stateAdj.setValue(RedStoneWireBlock.POWER, 0) == REDSTONE_WIRE_DOT_OLD)
-        {
-            stateAdj = REDSTONE_WIRE_CROSS.setValue(RedStoneWireBlock.POWER, stateAdj.getValue(RedStoneWireBlock.POWER));
-        }
+        stateAdj = FIXER_REDSTONE_CROSS.fixState(reader, stateAdj, pos);
 
         return stateAdj;
     };
 
+    // sign block entity fix (v3439)
+    // this is only needed to fix signs with missing block entity `id`, vanilla datafixer should handle them normally
     public static final IStateFixer FIXER_SIGN = (reader, state, pos) -> {
         CompoundData tag = reader.getBlockEntityData(pos);
 
@@ -367,11 +372,11 @@ public class SchematicConversionFixers
 
 			DyeColor color = DyeColor.byName(tag.getStringOrDefault("Color", ""), DyeColor.BLACK);
 			boolean glowing = tag.getBooleanOrDefault("GlowingText", false);
-	        SignText frontText = new SignText(new Component[]{text1, text2, text3, text4},
-	                                          new Component[]{Component.empty(), Component.empty(), Component.empty(), Component.empty()},
+	        SignText frontText = new SignText(List.of(text1, text2, text3, text4),
+	                                          List.of(Component.empty(), Component.empty(), Component.empty(), Component.empty()),
 	                                          color, glowing);
 
-	        tag.putCodec("front_text", SignText.DIRECT_CODEC, frontText);
+	        tag.putCodec("front_text", SignText.CODEC, frontText);
 
             tag.remove("Color");
             tag.remove("GlowingText");
