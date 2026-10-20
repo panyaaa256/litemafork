@@ -482,6 +482,10 @@ public class SchematicaSchematic
 
     public boolean readFromData(CompoundData nbt)
     {
+        int minecraftDataVersion = Configs.Generic.DATAFIXER_DEFAULT_SCHEMA.getIntegerValue();
+        this.metadata.setSchematicVersion(-1);
+        this.metadata.setMinecraftDataVersion(minecraftDataVersion);
+
         if (this.readBlocksFromData(nbt))
         {
             this.readEntitiesFromData(nbt);
@@ -815,12 +819,9 @@ public class SchematicaSchematic
     {
         this.entities.clear();
         ListData tagList = nbt.getList("Entities");
-        int minecraftDataVersion = Configs.Generic.DATAFIXER_DEFAULT_SCHEMA.getIntegerValue();
-        Schema effective = DataFixerMode.getEffectiveSchema(minecraftDataVersion);
 
-        this.metadata.setSchematicVersion(-1);
-        this.metadata.setMinecraftDataVersion(minecraftDataVersion);
-        this.metadata.setSchema();
+        int minecraftDataVersion = this.metadata.minecraftDataVersion;
+        Schema effective = DataFixerMode.getEffectiveSchema(minecraftDataVersion);
 
         if (effective != null)
         {
@@ -857,7 +858,7 @@ public class SchematicaSchematic
     {
         this.tiles.clear();
         ListData tagList = nbt.getList("TileEntities");
-        int minecraftDataVersion = Configs.Generic.DATAFIXER_DEFAULT_SCHEMA.getIntegerValue();
+        int minecraftDataVersion = this.metadata.minecraftDataVersion;
         Schema effective = DataFixerMode.getEffectiveSchema(minecraftDataVersion);
 
         if (effective != null)
