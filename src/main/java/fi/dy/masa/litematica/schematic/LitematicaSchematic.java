@@ -123,7 +123,6 @@ public class LitematicaSchematic
 		this.readFromNBT(nbt);
 		this.schematicFile = file;
 		this.schematicType = type;
-		this.converter = SchematicConverter.createForLitematica();
 	}
 
 	public LitematicaSchematic(Path file, CompoundData nbt, FileType type)

@@ -28,7 +28,6 @@ import fi.dy.masa.malilib.util.data.tag.ListData;
 import fi.dy.masa.malilib.util.data.tag.converter.DataConverterNbt;
 import fi.dy.masa.malilib.util.data.tag.util.DataOps;
 import fi.dy.masa.malilib.util.data.tag.util.DataTypeUtils;
-import fi.dy.masa.malilib.util.game.BlockUtils;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
@@ -97,7 +96,7 @@ public class SchematicConversionMaps
 
 					if (oldStateTag != null)
 					{
-						String name = oldStateTag.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+						String name = oldStateTag.getStringOrDefault("Name", "");
 						OLD_BLOCK_NAME_TO_SHIFTED_BLOCK_ID.putIfAbsent(name, data.idMeta & 0xFFF0);
 					}
 				}
@@ -124,7 +123,7 @@ public class SchematicConversionMaps
 			{
 				if (!entry.oldStates().isEmpty())
 				{
-					String oldName = entry.oldStates().getFirst().get(BlockUtils.BLOCK_STATE_NAME).asString("");
+					String oldName = entry.oldStates().getFirst().get("Name").asString("");
 
 					if (!oldName.isEmpty())
 					{
@@ -229,13 +228,13 @@ public class SchematicConversionMaps
 		{
 			// The flattening map actually has outdated names for some blocks...
 			// Ie. some blocks were renamed after the flattening, so we need to handle those here.
-			String newName = newStateTag.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+			String newName = newStateTag.getStringOrDefault("Name", "");
 			String overriddenName = ID_META_TO_UPDATED_NAME.get(idMeta);
 
 			if (overriddenName != null)
 			{
 				newName = overriddenName;
-				newStateTag.putString(BlockUtils.BLOCK_STATE_NAME, newName);
+				newStateTag.putString("Name", newName);
 			}
 
 			//RegistryEntryLookup<Block> lookup = Registries.BLOCK.getReadOnlyWrapper();
@@ -252,13 +251,13 @@ public class SchematicConversionMaps
 			if (oldStateStrings.length > 0)
 			{
 				CompoundData oldStateTag = getStateTagFromString(oldStateStrings[0]);
-				String oldName = oldStateTag.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+				String oldName = oldStateTag.getStringOrDefault("Name", "");
 
 				// Don't run the vanilla block rename for overridden names
 				if (overriddenName == null)
 				{
 					newName = updateBlockName(newName, Configs.Generic.DATAFIXER_DEFAULT_SCHEMA.getIntegerValue());
-					newStateTag.putString(BlockUtils.BLOCK_STATE_NAME, newName);
+					newStateTag.putString("Name", newName);
 				}
 
 				if (oldName.equals(newName) == false)
@@ -282,13 +281,13 @@ public class SchematicConversionMaps
 		{
 			// The flattening map actually has outdated names for some blocks...
 			// Ie. some blocks were renamed after the flattening, so we need to handle those here.
-			String newName = newStateTag.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+			String newName = newStateTag.getStringOrDefault("Name", "");
 			String overriddenName = ID_META_TO_UPDATED_NAME.get(idMeta);
 
 			if (overriddenName != null)
 			{
 				newName = overriddenName;
-				newStateTag.putString(BlockUtils.BLOCK_STATE_NAME, newName);
+				newStateTag.putString("Name", newName);
 			}
 
 			//RegistryEntryLookup<Block> lookup = Registries.BLOCK.getReadOnlyWrapper();
@@ -304,13 +303,13 @@ public class SchematicConversionMaps
 
 			if (!oldStates.isEmpty())
 			{
-				String oldName = oldStates.getFirst().get(BlockUtils.BLOCK_STATE_NAME).asString("");
+				String oldName = oldStates.getFirst().get("Name").asString("");
 
 				// Don't run the vanilla block rename for overridden names
 				if (overriddenName == null)
 				{
 					newName = updateBlockName(newName, Configs.Generic.DATAFIXER_DEFAULT_SCHEMA.getIntegerValue());
-					newStateTag.putString(BlockUtils.BLOCK_STATE_NAME, newName);
+					newStateTag.putString("Name", newName);
 				}
 
 				if (!oldName.equals(newName))
@@ -354,7 +353,7 @@ public class SchematicConversionMaps
 				// FIXME Is this going to be correct for everything?
 				if (oldStateTag != null && newStateTagIn.getKeys().equals(oldStateTag.getKeys()))
 				{
-					String oldBlockName = oldStateTag.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+					String oldBlockName = oldStateTag.getStringOrDefault("Name", "");
 					String newBlockName = OLD_NAME_TO_NEW_NAME.get(oldBlockName);
 
 					if (newBlockName != null && newBlockName.equals(oldBlockName) == false)
@@ -366,7 +365,7 @@ public class SchematicConversionMaps
 							if (oldStateTag != null)
 							{
 								CompoundData newTag = oldStateTag.copy();
-								newTag.putString(BlockUtils.BLOCK_STATE_NAME, newBlockName);
+								newTag.putString("Name", newBlockName);
 
 								OLD_STATE_TO_NEW_STATE.putIfAbsent(oldStateTag, newTag);
 								NEW_STATE_TO_OLD_STATE.putIfAbsent(newTag, oldStateTag);
@@ -426,7 +425,7 @@ public class SchematicConversionMaps
 				// FIXME Is this going to be correct for everything?
 				if (oldStateTag != null && newStateTagIn.getKeys().equals(oldStateTag.getKeys()))
 				{
-					String oldBlockName = oldStateTag.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+					String oldBlockName = oldStateTag.getStringOrDefault("Name", "");
 					String newBlockName = OLD_NAME_TO_NEW_NAME.get(oldBlockName);
 
 					if (newBlockName != null && !newBlockName.equals(oldBlockName))
@@ -447,7 +446,7 @@ public class SchematicConversionMaps
 							if (oldStateTag != null)
 							{
 								CompoundData newTag = oldStateTag.copy();
-								newTag.putString(BlockUtils.BLOCK_STATE_NAME, newBlockName);
+								newTag.putString("Name", newBlockName);
 
 								OLD_STATE_TO_NEW_STATE.putIfAbsent(oldStateTag, newTag);
 								NEW_STATE_TO_OLD_STATE.putIfAbsent(newTag, oldStateTag);
@@ -501,12 +500,12 @@ public class SchematicConversionMaps
 		// Don't update the name yet if block is pre-flattening
 		if (oldVersion >= LitematicaSchematic.MINECRAFT_DATA_VERSION_1_13_2)
 		{
-			String oldName = oldBlockState.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "");
+			String oldName = oldBlockState.getStringOrDefault("Name", "");
 			String blockName = updateBlockName(oldName, oldVersion);
 
 			if (!oldName.equalsIgnoreCase(blockName))
 			{
-				oldBlockState.putString(BlockUtils.BLOCK_STATE_NAME, blockName);
+				oldBlockState.putString("Name", blockName);
 				Litematica.LOGGER.error("updateBlockName: [{}] -> [{}]", oldName, blockName);
 			}
 		}
@@ -526,7 +525,7 @@ public class SchematicConversionMaps
 		catch (Exception e)
 		{
 			Litematica.LOGGER.warn("updateBlockStates: failed to update Block State [{}], preserving original state (data may become lost)",
-			                       oldBlockState.getStringOrDefault(BlockUtils.BLOCK_STATE_NAME, "?"));
+			                       oldBlockState.getStringOrDefault("Name", "?"));
 			return oldBlockState;
 		}
 	}
