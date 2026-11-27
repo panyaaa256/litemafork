@@ -237,7 +237,7 @@ public class MaterialListUtils
 
                 if (stack.isEmpty() == false)
                 {
-                    entitiesTotal.addTo(new ItemType(stack, false), 1);
+                    entitiesTotal.addTo(new ItemType(stack, false), stack.getCount());
                 }
             }
         }
@@ -270,6 +270,7 @@ public class MaterialListUtils
                 for (EntityInfo entityInfo : entities)
                 {
                     addAllItems(items, entityInfo.nbt());
+                    addFramedItem(items, entityInfo.nbt());
                 }
             }
 
@@ -329,6 +330,25 @@ public class MaterialListUtils
         if (items != null)
         {
             out.addAll(items);
+        }
+    }
+
+    /**
+     * Appends the item an item frame holds, if the tag is one of a frame holding something.
+     * The entity counts the frame itself, so what is in it goes with the container contents.
+     */
+    private static void addFramedItem(ListData out, CompoundData tag)
+    {
+        EntityType<?> type = tag != null ? EntityUtils.getEntityTypeById(tag.getString("id")) : null;
+
+        if (type == EntityType.ITEM_FRAME || type == EntityType.GLOW_ITEM_FRAME)
+        {
+            CompoundData item = tag.getCompound("Item");
+
+            if (item != null && item.isEmpty() == false)
+            {
+                out.add(item);
+            }
         }
     }
 
@@ -429,25 +449,32 @@ public class MaterialListUtils
     /**
      * Builds the material list for a placement, combining live-world block counts with entity/container
      * item counts gathered separately (e.g. filtered to what's visible in the current render layer).
-     * Entities/containers are counted from the schematic's ghost/overlay world, so there is no real-world
-     * match to check availability against: they are always reported as missing.
+     * <p>
+     * The entities are counted from the schematic world, and those of them that were not found
+     * in the client world - within the verifier's position tolerance - are the missing ones.
+     * Container contents are not matched against the world, so all of them count as missing.
+     *
+     * @param entitiesMissing the entities of entitiesTotal that are not in the world yet
      */
     public static List<MaterialListEntry> buildEntriesForPlacement(
             Object2IntOpenHashMap<BlockState> countsTotal,
             Object2IntOpenHashMap<BlockState> countsMissing,
             Object2IntOpenHashMap<BlockState> countsMismatch,
             Object2IntOpenHashMap<ItemType> entitiesTotal,
+            Object2IntOpenHashMap<ItemType> entitiesMissing,
             InclusionType entitiesInclusionType,
             Object2IntOpenHashMap<ItemType> containersTotal,
             InclusionType containersInclusionType,
             Player player)
     {
-        Object2IntOpenHashMap<ItemType> only = onlyTally(entitiesInclusionType, () -> entitiesTotal,
-                                                         containersInclusionType, () -> containersTotal);
-
-        if (only != null)
+        if (entitiesInclusionType == InclusionType.ONLY)
         {
-            return buildEntriesFromItemCounts(only, only.clone(), new Object2IntOpenHashMap<>(), player);
+            return buildEntriesFromItemCounts(entitiesTotal.clone(), entitiesMissing.clone(), new Object2IntOpenHashMap<>(), player);
+        }
+
+        if (containersInclusionType == InclusionType.ONLY)
+        {
+            return buildEntriesFromItemCounts(containersTotal.clone(), containersTotal.clone(), new Object2IntOpenHashMap<>(), player);
         }
 
         Object2IntOpenHashMap<ItemType> itemTypesTotal = blockItemCounts(countsTotal);
@@ -456,7 +483,8 @@ public class MaterialListUtils
 
         if (entitiesInclusionType != InclusionType.NONE)
         {
-            addTally(itemTypesTotal, itemTypesMissing, entitiesTotal);
+            addTally(itemTypesTotal, null, entitiesTotal);
+            addTally(itemTypesMissing, null, entitiesMissing);
         }
 
         if (containersInclusionType != InclusionType.NONE)
@@ -608,44 +636,53 @@ public class MaterialListUtils
 
         for (int slot = 0; slot < slots; ++slot)
         {
-            ItemStack stack = inv.getItem(slot);
-
-            if (stack.isEmpty() == false)
-            {
-                Item item = stack.getItem();
-
-                if (item instanceof BlockItem &&
-                    ((BlockItem) stack.getItem()).getBlock() instanceof ShulkerBoxBlock &&
-                    InventoryUtils.shulkerBoxHasItems(stack))
-                {
-                    Object2IntOpenHashMap<ItemType> boxCounts = getStoredItemCounts(stack);
-
-                    for (ItemType boxType : boxCounts.keySet())
-                    {
-                        map.addTo(boxType, boxCounts.getInt(boxType));
-                    }
-
-                    boxCounts.clear();
-                }
-                else if (item instanceof BundleItem && InventoryUtils.bundleHasItems(stack))
-                {
-                    Object2IntOpenHashMap<ItemType> bundleCounts = getBundleItemCounts(stack);
-
-                    for (ItemType bundleType : bundleCounts.keySet())
-                    {
-                        map.addTo(bundleType, bundleCounts.getInt(bundleType));
-                    }
-
-                    bundleCounts.clear();
-                }
-                else
-                {
-                    map.addTo(new ItemType(stack, true, false), stack.getCount());
-                }
-            }
+            addItemStackCounts(inv.getItem(slot), map);
         }
 
         return map;
+    }
+
+    /**
+     * Adds one stack to an item tally the way a container's slot is counted: a shulker box or
+     * a bundle with something in it as what it holds, anything else as itself.
+     */
+    public static void addItemStackCounts(ItemStack stack, Object2IntOpenHashMap<ItemType> map)
+    {
+        if (stack.isEmpty())
+        {
+            return;
+        }
+
+        Item item = stack.getItem();
+
+        if (item instanceof BlockItem &&
+            ((BlockItem) stack.getItem()).getBlock() instanceof ShulkerBoxBlock &&
+            InventoryUtils.shulkerBoxHasItems(stack))
+        {
+            Object2IntOpenHashMap<ItemType> boxCounts = getStoredItemCounts(stack);
+
+            for (ItemType boxType : boxCounts.keySet())
+            {
+                map.addTo(boxType, boxCounts.getInt(boxType));
+            }
+
+            boxCounts.clear();
+        }
+        else if (item instanceof BundleItem && InventoryUtils.bundleHasItems(stack))
+        {
+            Object2IntOpenHashMap<ItemType> bundleCounts = getBundleItemCounts(stack);
+
+            for (ItemType bundleType : bundleCounts.keySet())
+            {
+                map.addTo(bundleType, bundleCounts.getInt(bundleType));
+            }
+
+            bundleCounts.clear();
+        }
+        else
+        {
+            map.addTo(new ItemType(stack, true, false), stack.getCount());
+        }
     }
 
     public static Object2IntOpenHashMap<ItemType> getStoredItemCounts(ItemStack stackShulkerBox)

@@ -87,10 +87,11 @@ public class ServerTaskResultReader
 
 			ItemStack stack = toItem.apply(str.getString());
 
-			// An id this client does not know, or an entity with no item to stand for it
+			// An id this client does not know, or an entity with no item to stand for it.
+			// An entity that picks as several items costs that many each, as it does locally
 			if (stack.isEmpty() == false)
 			{
-				out.addTo(new ItemType(stack, false), counts[i]);
+				out.addTo(new ItemType(stack, false), counts[i] * stack.getCount());
 			}
 		}
 	}

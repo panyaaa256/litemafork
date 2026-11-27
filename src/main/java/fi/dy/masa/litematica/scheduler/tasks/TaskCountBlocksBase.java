@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -82,7 +83,10 @@ public abstract class TaskCountBlocksBase extends TaskProcessChunkBase
     {
     }
 
-    /** Counts one entity as the item it stands for, and its contents if it holds any. */
+    /**
+     * Counts one entity as the item it stands for, and its contents if it holds any - the
+     * slots of a container entity, or what an item frame holds.
+     */
     protected void countEntity(Entity entity)
     {
         if (this.entitiesInclusionType != InclusionType.NONE)
@@ -91,14 +95,32 @@ public abstract class TaskCountBlocksBase extends TaskProcessChunkBase
 
             if (stack.isEmpty() == false)
             {
-                this.entitiesTotal.addTo(new ItemType(stack, false), 1);
+                ItemType type = new ItemType(stack, false);
+
+                this.entitiesTotal.addTo(type, stack.getCount());
+                this.onEntityCounted(entity, type, stack.getCount());
             }
         }
 
-        if (this.containersInclusionType != InclusionType.NONE && entity instanceof Container container)
+        if (this.containersInclusionType != InclusionType.NONE)
         {
-            this.addContainerItems(container);
+            if (entity instanceof Container container)
+            {
+                this.addContainerItems(container);
+            }
+            else if (entity instanceof ItemFrame frame)
+            {
+                MaterialListUtils.addItemStackCounts(frame.getItem(), this.containersTotal);
+            }
         }
+    }
+
+    /**
+     * Called for each entity that was counted as an item, with what it was counted as.
+     * A list that tells what is still missing finds out here whether this one is.
+     */
+    protected void onEntityCounted(Entity entity, ItemType type, int count)
+    {
     }
 
     protected void addContainerItems(Container container)
