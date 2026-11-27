@@ -737,9 +737,26 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         }
 
         // Excluded by the verifier black-/whitelist: drop it entirely, as locally
-        if (this.verifierListRegistry.isPositionIgnored(stateSchematic, stateClient) ||
-            this.verifierListRegistry.shouldTreatAsCorrect(stateSchematic, stateClient))
+        if (this.verifierListRegistry.isPositionIgnored(stateSchematic, stateClient))
         {
+            return;
+        }
+
+        // Differs only in properties the black-/whitelist excludes, or only in the crop age
+        // while that is ignored: a local run counts these positions as correct, so they have
+        // to go into the correct counts here too, not just be dropped
+        if (this.verifierListRegistry.shouldTreatAsCorrect(stateSchematic, stateClient) ||
+            (Configs.Visuals.IGNORE_CROP_AGE.getBooleanValue() &&
+             BlockUtils.areStatesEqualIgnoringAge(stateSchematic, stateClient)))
+        {
+            ItemUtils.setItemForBlock(this.worldClient, BlockPos.of(positions[0]), stateClient);
+            this.correctStateCounts.addTo(stateClient, positions.length);
+
+            if (stateSchematic.isAir() == false)
+            {
+                this.correctStatesCount += positions.length;
+            }
+
             return;
         }
 
@@ -1016,7 +1033,9 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     {
         this.schematicBlocks = totals.getInt("SchematicBlocks");
         this.clientBlocks = totals.getInt("WorldBlocks");
-        this.correctStatesCount = totals.getInt("CorrectStatesCount");
+        // Added to, not assigned: positions treated as correct on this side have been
+        // counted into it while the batches came in
+        this.correctStatesCount += totals.getInt("CorrectStatesCount");
         // Keep the running value when the key is absent: getInt() would zero the counters
         this.serverChunksTotal = totals.contains("TotalChunks", Constants.NBT.TAG_INT) ? totals.getInt("TotalChunks") : this.serverChunksTotal;
         this.serverChunksDone = totals.contains("ProcessedChunks", Constants.NBT.TAG_INT) ? totals.getInt("ProcessedChunks") : this.serverChunksDone;
@@ -1025,9 +1044,20 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
         int[] states = totals.getIntArray("CorrectStates");
         int[] counts = totals.getIntArray("CorrectStateCounts");
 
+        BlockPos origin = this.schematicPlacement != null ? this.schematicPlacement.getOrigin() : BlockPos.ZERO;
+
         for (int i = 0; i < Math.min(states.length, counts.length); i++)
         {
-            this.correctStateCounts.addTo(Block.stateById(states[i]), counts[i]);
+            BlockState state = Block.stateById(states[i]);
+            this.correctStateCounts.addTo(state, counts[i]);
+
+            // The Correct list groups its states by item, which it looks up from the item
+            // cache. A local run fills that in for every correct block it sees; the server
+            // only sends the counts, so without this every state not cached by some earlier
+            // run resolves to the empty stack, and they all collapse into one row that sums
+            // up their counts. The position only matters for the few blocks whose pick
+            // stack reads the world.
+            ItemUtils.setItemForBlock(this.worldClient, origin, state);
         }
 
         this.contentsSlotExact = totals.getBoolean("ContentsSlotExact");
