@@ -1,7 +1,6 @@
 package fi.dy.masa.litematica.schematic.verifier;
 
 import java.util.*;
-import java.util.function.Predicate;
 import javax.annotation.Nullable;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
@@ -34,7 +33,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import fi.dy.masa.malilib.gui.GuiBase;
@@ -939,7 +937,7 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     @Nullable
     private Entity findSchematicEntity(EntityType<?> type, Vec3 pos)
     {
-        return this.worldSchematic != null ? findClosestEntity(this.worldSchematic, type, pos, e -> true) : null;
+        return this.worldSchematic != null ? EntityUtils.findClosestEntity(this.worldSchematic, type, pos, getEntityTolerance(), e -> true) : null;
     }
 
     /**
@@ -1780,31 +1778,8 @@ public class SchematicVerifier extends TaskBase implements IInfoHudRenderer
     @Nullable
     private Entity findMatchingClientEntity(EntityType<?> type, Vec3 pos)
     {
-        return findClosestEntity(this.worldClient, type, pos,
-                                 e -> isVerifiableEntity(e) && this.usedClientEntityUuids.contains(e.getUUID()) == false);
-    }
-
-    /** The entity of this type in the world closest to pos, within the position tolerance. */
-    @Nullable
-    private static Entity findClosestEntity(Level world, EntityType<?> type, Vec3 pos, Predicate<Entity> filter)
-    {
-        final double tolerance = getEntityTolerance();
-        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
-        Entity closest = null;
-        double closestDistSq = Double.MAX_VALUE;
-
-        for (Entity candidate : world.getEntities((Entity) null, searchBox, e -> e.getType() == type && filter.test(e)))
-        {
-            double distSq = candidate.position().distanceToSqr(pos);
-
-            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
-            {
-                closestDistSq = distSq;
-                closest = candidate;
-            }
-        }
-
-        return closest;
+        return EntityUtils.findClosestEntity(this.worldClient, type, pos, getEntityTolerance(),
+                                             e -> isVerifiableEntity(e) && this.usedClientEntityUuids.contains(e.getUUID()) == false);
     }
 
     private static double getEntityTolerance()
