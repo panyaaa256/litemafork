@@ -1,7 +1,5 @@
 package fi.dy.masa.litematica.schematic.conversion;
 
-import java.util.List;
-
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.RegistryAccess;
@@ -374,11 +372,11 @@ public class SchematicConversionFixers
 
 			DyeColor color = DyeColor.byName(tag.getStringOrDefault("Color", ""), DyeColor.BLACK);
 			boolean glowing = tag.getBooleanOrDefault("GlowingText", false);
-	        SignText frontText = new SignText(List.of(text1, text2, text3, text4),
-	                                          List.of(Component.empty(), Component.empty(), Component.empty(), Component.empty()),
+	        SignText frontText = new SignText(new Component[]{text1, text2, text3, text4},
+	                                          new Component[]{Component.empty(), Component.empty(), Component.empty(), Component.empty()},
 	                                          color, glowing);
 
-	        tag.putCodec("front_text", SignText.CODEC, frontText);
+	        tag.putCodec("front_text", SignText.DIRECT_CODEC, frontText);
 
             tag.remove("Color");
             tag.remove("GlowingText");
