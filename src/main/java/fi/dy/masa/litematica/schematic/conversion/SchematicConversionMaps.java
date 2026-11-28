@@ -1,8 +1,8 @@
 package fi.dy.masa.litematica.schematic.conversion;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -11,8 +11,6 @@ import com.mojang.datafixers.DataFixUtils;
 import com.mojang.serialization.Dynamic;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.HolderGetter;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.StringTag;
@@ -20,7 +18,6 @@ import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.datafix.DataFixers;
 import net.minecraft.util.datafix.fixes.References;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -42,10 +39,10 @@ public class SchematicConversionMaps
 	private static final Int2ObjectOpenHashMap<String> ID_META_TO_UPDATED_NAME = new Int2ObjectOpenHashMap<>();
 	private static final Object2IntOpenHashMap<BlockState> BLOCKSTATE_TO_ID_META = DataFixUtils.make(new Object2IntOpenHashMap<>(), (map) -> map.defaultReturnValue(-1));
 	private static final Int2ObjectOpenHashMap<BlockState> ID_META_TO_BLOCKSTATE = new Int2ObjectOpenHashMap<>();
-	private static final HashMap<String, String> OLD_NAME_TO_NEW_NAME = new HashMap<>();
-	private static final HashMap<String, String> NEW_NAME_TO_OLD_NAME = new HashMap<>();
-	private static final HashMap<CompoundData, CompoundData> OLD_STATE_TO_NEW_STATE = new HashMap<>();
-	private static final HashMap<CompoundData, CompoundData> NEW_STATE_TO_OLD_STATE = new HashMap<>();
+	private static final ConcurrentHashMap<String, String> OLD_NAME_TO_NEW_NAME = new ConcurrentHashMap<>();
+	private static final ConcurrentHashMap<String, String> NEW_NAME_TO_OLD_NAME = new ConcurrentHashMap<>();
+	private static final ConcurrentHashMap<CompoundData, CompoundData> OLD_STATE_TO_NEW_STATE = new ConcurrentHashMap<>();
+	private static final ConcurrentHashMap<CompoundData, CompoundData> NEW_STATE_TO_OLD_STATE = new ConcurrentHashMap<>();
 	private static final ArrayList<ConversionData> CACHED_DATA = new ArrayList<>();
 	private static final ArrayList<ConversionDynamic> CACHED_DYNAMIC = new ArrayList<>();
 
@@ -241,10 +238,11 @@ public class SchematicConversionMaps
 			}
 
 			//RegistryEntryLookup<Block> lookup = Registries.BLOCK.getReadOnlyWrapper();
-			HolderGetter<Block> lookup = SchematicWorldHandler.INSTANCE.getRegistryManager().lookupOrThrow(Registries.BLOCK);
+//			HolderGetter<Block> lookup = SchematicWorldHandler.INSTANCE.getRegistryManager().lookupOrThrow(Registries.BLOCK);
 			// Store the id + meta => state maps before renaming the block for the state <=> state maps
-			BlockState state = net.minecraft.nbt.NbtUtils.readBlockState(lookup, DataConverterNbt.toVanillaCompound(newStateTag));
-			//System.out.printf("id: %5d, state: %s, tag: %s\n", idMeta, state, newStateTag);
+//			BlockState state = net.minecraft.nbt.NbtUtils.readBlockState(lookup, DataConverterNbt.toVanillaCompound(newStateTag));
+			BlockState state = DataTypeUtils.readBlockStateFromTag(newStateTag, SchematicWorldHandler.INSTANCE.getRegistryManager());
+			System.out.printf("id: %5d, state: %s, tag: %s\n", idMeta, state, newStateTag);
 			ID_META_TO_BLOCKSTATE.putIfAbsent(idMeta, state);
 
 			// Don't override the id and meta for air, which is what unrecognized blocks will turn into
@@ -293,10 +291,11 @@ public class SchematicConversionMaps
 			}
 
 			//RegistryEntryLookup<Block> lookup = Registries.BLOCK.getReadOnlyWrapper();
-			HolderGetter<Block> lookup = SchematicWorldHandler.INSTANCE.getRegistryManager().lookupOrThrow(Registries.BLOCK);
+//			HolderGetter<Block> lookup = SchematicWorldHandler.INSTANCE.getRegistryManager().lookupOrThrow(Registries.BLOCK);
 			// Store the id + meta => state maps before renaming the block for the state <=> state maps
-			BlockState state = net.minecraft.nbt.NbtUtils.readBlockState(lookup, DataConverterNbt.toVanillaCompound(newStateTag));
-			//System.out.printf("id: %5d, state: %s, tag: %s\n", idMeta, state, newStateTag);
+//			BlockState state = net.minecraft.nbt.NbtUtils.readBlockState(lookup, DataConverterNbt.toVanillaCompound(newStateTag));
+			BlockState state = DataTypeUtils.readBlockStateFromTag(newStateTag, SchematicWorldHandler.INSTANCE.getRegistryManager());
+			System.out.printf("id: %5d, state: %s, tag: %s\n", idMeta, state, newStateTag);
 			ID_META_TO_BLOCKSTATE.putIfAbsent(idMeta, state);
 
 			// Don't override the id and meta for air, which is what unrecognized blocks will turn into
@@ -507,7 +506,7 @@ public class SchematicConversionMaps
 			if (!oldName.equalsIgnoreCase(blockName))
 			{
 				oldBlockState.putString("Name", blockName);
-//				Litematica.LOGGER.error("updateBlockName: [{}] -> [{}]", oldName, blockName);
+				Litematica.LOGGER.error("updateBlockName: [{}] -> [{}]", oldName, blockName);
 			}
 		}
 
@@ -677,6 +676,10 @@ public class SchematicConversionMaps
 		else if (tags.containsLenient("facing") || tags.containsLenient("extending"))
 		{
 			tags.putString("id", "minecraft:piston");
+		}
+		else if (tags.containsLenient("Text1") || tags.containsLenient("Text2") || tags.containsLenient("Text3") || tags.containsLenient("Text4"))
+		{
+			tags.putString("id", "minecraft:sign");
 		}
 		else if (tags.containsLenient("x") && tags.containsLenient("y") && tags.containsLenient("z"))
 		{
