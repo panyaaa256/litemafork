@@ -326,8 +326,9 @@ public class EntityUtils
 
         if (stack != null && stack.isEmpty() == false)
         {
-            // Only the item matters for counting; drop any data the pick attached to it
-            return new ItemStack(stack.getItem());
+            // Only the item matters for counting; drop any data the pick attached to it.
+            // The count stays: an entity that stands for a stack of items picks as that many
+            return new ItemStack(stack.getItem(), stack.getCount());
         }
 
         // Nothing to pick, e.g. primed TNT: fall back to the item sharing the entity's id,
@@ -395,6 +396,34 @@ public class EntityUtils
     public static void clearEntityItemCache()
     {
         ENTITY_TYPE_ITEMS.clear();
+    }
+
+    /**
+     * The entity of this type in the world closest to pos, within the tolerance - the one a
+     * schematic entity at pos is found as in the world. Both the schematic verifier and the
+     * placement material lists pair schematic entities with world entities this way.
+     *
+     * @param filter which of the candidates may be picked, e.g. not one already paired up
+     */
+    @Nullable
+    public static Entity findClosestEntity(Level world, EntityType<?> type, Vec3 pos, double tolerance, Predicate<Entity> filter)
+    {
+        AABB searchBox = new AABB(pos, pos).inflate(Math.max(tolerance, 0.001));
+        Entity closest = null;
+        double closestDistSq = Double.MAX_VALUE;
+
+        for (Entity candidate : world.getEntities((Entity) null, searchBox, e -> e.getType() == type && filter.test(e)))
+        {
+            double distSq = candidate.position().distanceToSqr(pos);
+
+            if (distSq <= tolerance * tolerance && distSq < closestDistSq)
+            {
+                closestDistSq = distSq;
+                closest = candidate;
+            }
+        }
+
+        return closest;
     }
 
     /** The entity type an id names, as {@link #getEntityItem(EntityType)} expects it. */

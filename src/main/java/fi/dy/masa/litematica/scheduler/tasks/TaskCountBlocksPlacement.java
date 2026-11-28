@@ -1,7 +1,11 @@
 package fi.dy.masa.litematica.scheduler.tasks;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.Container;
@@ -10,6 +14,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
+import fi.dy.masa.malilib.util.data.ItemType;
 import fi.dy.masa.malilib.util.position.IntBoundingBox;
 import fi.dy.masa.litematica.config.Configs;
 import fi.dy.masa.litematica.data.DataManager;
@@ -28,6 +33,10 @@ public class TaskCountBlocksPlacement extends TaskCountBlocksBase
 {
     protected final SchematicPlacement schematicPlacement;
     protected final boolean ignoreState;
+    /** The counted entities that were not found in the client world. */
+    protected final Object2IntOpenHashMap<ItemType> entitiesMissing = new Object2IntOpenHashMap<>();
+    /** The client world entities already paired with a schematic entity. */
+    private final Set<UUID> pairedClientEntities = new HashSet<>();
 
     public TaskCountBlocksPlacement(SchematicPlacement schematicPlacement, IMaterialList materialList)
     {
@@ -81,11 +90,36 @@ public class TaskCountBlocksPlacement extends TaskCountBlocksBase
         }
     }
 
+    /**
+     * A schematic entity is in place when the client world has an entity of the same type
+     * within the verifier's position tolerance, which no other schematic entity was paired
+     * with - so that two minecarts in one spot need two in the world.
+     * <p>
+     * One the client was not sent, because it is beyond that type's tracking range, can't be
+     * found and counts as missing until the list is refreshed from closer by.
+     */
+    @Override
+    protected void onEntityCounted(Entity entity, ItemType type, int count)
+    {
+        Entity match = EntityUtils.findClosestEntity(this.clientWorld, entity.getType(), entity.position(),
+                                                     Configs.Generic.VERIFIER_ENTITY_TOLERANCE.getDoubleValue(),
+                                                     e -> this.pairedClientEntities.contains(e.getUUID()) == false);
+
+        if (match != null)
+        {
+            this.pairedClientEntities.add(match.getUUID());
+        }
+        else
+        {
+            this.entitiesMissing.addTo(type, count);
+        }
+    }
+
     @Override
     protected List<MaterialListEntry> buildMaterialListEntries()
     {
         return MaterialListUtils.buildEntriesForPlacement(this.countsTotal, this.countsMissing, this.countsMismatch,
-                                                           this.entitiesTotal, this.entitiesInclusionType,
+                                                           this.entitiesTotal, this.entitiesMissing, this.entitiesInclusionType,
                                                            this.containersTotal, this.containersInclusionType,
                                                            this.mc.player);
     }
