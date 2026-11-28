@@ -153,7 +153,9 @@ public class ServerMaterialListSession extends MaterialListTaskSessionBase
 	{
 		return MaterialListUtils.buildEntriesForPlacement(
 				this.countsTotal, this.countsMissing, this.countsMismatch,
-				this.entitiesTotal, this.entitiesInclusionType,
+				// The server sends no matching of the entities against the world, only what the
+				// placement has, so all of them count as missing
+				this.entitiesTotal, this.entitiesTotal, this.entitiesInclusionType,
 				this.containersTotal, this.containersInclusionType,
 				Minecraft.getInstance().player);
 	}
