@@ -28,6 +28,7 @@ import fi.dy.masa.malilib.util.i18n.i18nOption;
 import fi.dy.masa.malilib.util.restrictions.UsageRestriction;
 import fi.dy.masa.litematica.Litematica;
 import fi.dy.masa.litematica.Reference;
+import fi.dy.masa.litematica.compat.voxy.VoxyCompat;
 import fi.dy.masa.litematica.data.DataManager;
 import fi.dy.masa.litematica.render.LitematicaDebugHud;
 import fi.dy.masa.litematica.schematic.placement.PlacementManagerDaemonHandler;
@@ -112,6 +113,7 @@ public class Configs implements IConfigHandler
         public static final ConfigBoolean       MATERIAL_LIST_RECIPE_DETAILS= new ConfigBoolean("materialListRecipeDetails", true).apply(GENERIC_KEY);
         public static final ConfigBoolean       MATERIAL_LIST_USING_SERVUX  = new ConfigBoolean("materialListUsingServux", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_ALWAYS_USE_FILL       = new ConfigBoolean("pasteAlwaysUseFill", false).apply(GENERIC_KEY);
+        public static final ConfigBoolean       PASTE_ALWAYS_USE_PERSISTENT = new ConfigBoolean("pasteAlwaysUsePersistent", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_BE_ENTIRELY    = new ConfigBoolean("pasteIgnoreBlockEntitiesEntirely", false).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_BE_IN_FILL     = new ConfigBoolean("pasteIgnoreBlockEntitiesFromFill", true).apply(GENERIC_KEY);
         public static final ConfigBoolean       PASTE_IGNORE_CMD_LIMIT      = new ConfigBoolean("pasteIgnoreCommandLimitWithNbtRestore", true).apply(GENERIC_KEY);
@@ -206,6 +208,7 @@ public class Configs implements IConfigHandler
                 MATERIAL_LIST_RECIPE_DETAILS,
                 MATERIAL_LIST_USING_SERVUX,
                 PASTE_ALWAYS_USE_FILL,
+                PASTE_ALWAYS_USE_PERSISTENT,
                 PASTE_IGNORE_BE_ENTIRELY,
                 PASTE_IGNORE_BE_IN_FILL,
                 PASTE_IGNORE_CMD_LIMIT,
@@ -535,6 +538,7 @@ public class Configs implements IConfigHandler
             DataManager.getInstance().setToolItemComponents(Generic.TOOL_ITEM_COMPONENTS.getStringValue(), Minecraft.getInstance().level.registryAccess());
         }
 
+        VoxyCompat.checkConfig();
         InventoryUtils.setPickBlockableSlots(Generic.PICK_BLOCKABLE_SLOTS.getStringValue());
         DataManager.getSelectionManager().checkSelectionModeConfig();
 	    LitematicaDebugHud.INSTANCE.checkConfig();

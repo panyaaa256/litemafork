@@ -27,7 +27,6 @@ import fi.dy.masa.litematica.world.SchematicWorldHandler;
 public class SchematicConversionFixers
 {
     private static final BooleanProperty[] HORIZONTAL_CONNECTING_BLOCK_PROPS = new BooleanProperty[] { null, null, CrossCollisionBlock.NORTH, CrossCollisionBlock.SOUTH, CrossCollisionBlock.WEST, CrossCollisionBlock.EAST };
-    private static final BlockState REDSTONE_WIRE_DOT_OLD = Blocks.REDSTONE_WIRE.defaultBlockState();
     private static final BlockState REDSTONE_WIRE_DOT = Blocks.REDSTONE_WIRE.defaultBlockState()
                           .setValue(RedStoneWireBlock.POWER, 0)
                           .setValue(RedStoneWireBlock.NORTH, RedstoneSide.NONE)
@@ -46,7 +45,8 @@ public class SchematicConversionFixers
         if (tag != null && tag.contains("Base", Constants.NBT.TAG_INT))
         {
             DyeColor colorOrig = ((AbstractBannerBlock) state.getBlock()).getColor();
-            DyeColor colorFromData = DyeColor.byId(15 - tag.getIntOrDefault("Base", 0));
+            // Running the vanilla datafixer beforehand should carry out the 15 - Base invert
+            DyeColor colorFromData = DyeColor.byId(tag.getIntOrDefault("Base", 0));
 
             if (colorOrig != colorFromData)
             {
@@ -85,7 +85,8 @@ public class SchematicConversionFixers
         if (tag != null && tag.contains("Base", Constants.NBT.TAG_INT))
         {
             DyeColor colorOrig = ((AbstractBannerBlock) state.getBlock()).getColor();
-            DyeColor colorFromData = DyeColor.byId(15 - tag.getIntOrDefault("Base", 0));
+            // Running the vanilla datafixer beforehand should carry out the 15 - Base invert
+            DyeColor colorFromData = DyeColor.byId(tag.getIntOrDefault("Base", 0));
 
             if (colorOrig != colorFromData)
             {
@@ -157,7 +158,7 @@ public class SchematicConversionFixers
         return state;
     };
 
-    public static final IStateFixer FIXER_CHRORUS_PLANT = (reader, state, pos) -> ChorusPlantBlock.getStateWithConnections(reader, pos, state);
+    public static final IStateFixer FIXER_CHORUS_PLANT = (reader, state, pos) -> ChorusPlantBlock.getStateWithConnections(reader, pos, state);
 
     public static final IStateFixer FIXER_DIRT_SNOWY = (reader, state, pos) -> {
         Block block = reader.getBlockState(pos.above()).getBlock();
@@ -323,24 +324,28 @@ public class SchematicConversionFixers
         return state.setValue(RepeaterBlock.LOCKED, Boolean.valueOf(getIsRepeaterPoweredOnSide(reader, pos, state)));
     };
 
-    public static final IStateFixer FIXER_REDSTONE_WIRE = (reader, state, pos) -> {
+    public static final IStateFixer FIXER_REDSTONE_CROSS = (reader, state, pos) -> {
+        // Turn all old dots into crosses, while keeping the power level (v2531)
+        if (state.setValue(RedStoneWireBlock.POWER, 0) == REDSTONE_WIRE_DOT)
+        {
+            state = REDSTONE_WIRE_CROSS.setValue(RedStoneWireBlock.POWER, state.getValue(RedStoneWireBlock.POWER));
+        }
+
+        return state;
+    };
+
+    // Recompute blockstate of redstone wire, since it did not store sides before the flattening, and then apply cross fixer
+    public static final IStateFixer FIXER_REDSTONE_WIRE_ADJACENCY = (reader, state, pos) -> {
         RedStoneWireBlock wire = (RedStoneWireBlock) state.getBlock();
         BlockState stateAdj = ((IMixinRedstoneWireBlock) wire).litematica_GetPlacementState(reader, state, pos);
 
-        if (stateAdj.equals(state) == false)
-        {
-            // Vanilla breaks Redstone connections when it doesn't detect the neighbor being powered
-            stateAdj = state;
-        }
-        // Turn all old dots into crosses, while keeping the power level
-        if (stateAdj.equals(REDSTONE_WIRE_DOT) == false && stateAdj.setValue(RedStoneWireBlock.POWER, 0) == REDSTONE_WIRE_DOT_OLD)
-        {
-            stateAdj = REDSTONE_WIRE_CROSS.setValue(RedStoneWireBlock.POWER, stateAdj.getValue(RedStoneWireBlock.POWER));
-        }
+        stateAdj = FIXER_REDSTONE_CROSS.fixState(reader, stateAdj, pos);
 
         return stateAdj;
     };
 
+    // sign block entity fix (v3439)
+    // this is only needed to fix signs with missing block entity `id`, vanilla datafixer should handle them normally
     public static final IStateFixer FIXER_SIGN = (reader, state, pos) -> {
         CompoundData tag = reader.getBlockEntityData(pos);
 
@@ -384,6 +389,7 @@ public class SchematicConversionFixers
         return state;
     };
 
+    // Flattening skull fixer
     public static final IStateFixer FIXER_SKULL = (reader, state, pos) -> {
         CompoundData tag = reader.getBlockEntityData(pos);
 
@@ -391,38 +397,31 @@ public class SchematicConversionFixers
         {
             int id = Mth.clamp(tag.getByteOrDefault("SkullType", (byte) 0), 0, 5);
 
-            // ;_; >_> <_<
-            if (id == 2) { id = 3; } else if (id == 3) { id = 2; }
-
             SkullBlock.Type typeOrig = ((AbstractSkullBlock) state.getBlock()).getType();
-            SkullBlock.Type typeFromData = SkullBlock.Types.values()[id];
+            // SkullBlock.Type enum has a different order now ;_; >_> <_< these are 1.12.2 ids
+            SkullBlock.Type typeFromData = switch (id)
+            {
+                case 0 -> SkullBlock.Types.SKELETON;
+                case 1 -> SkullBlock.Types.WITHER_SKELETON;
+                case 2 -> SkullBlock.Types.ZOMBIE;
+                case 3 -> SkullBlock.Types.PLAYER;
+                case 4 -> SkullBlock.Types.CREEPER;
+                case 5 -> SkullBlock.Types.DRAGON;
+                default -> SkullBlock.Types.SKELETON;
+            };
 
             if (typeOrig != typeFromData)
             {
-                if (typeFromData == SkullBlock.Types.SKELETON)
+                state = switch (typeFromData)
                 {
-                    state = Blocks.SKELETON_SKULL.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.WITHER_SKELETON)
-                {
-                    state = Blocks.WITHER_SKELETON_SKULL.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.PLAYER)
-                {
-                    state = Blocks.PLAYER_HEAD.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.ZOMBIE)
-                {
-                    state = Blocks.ZOMBIE_HEAD.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.CREEPER)
-                {
-                    state = Blocks.CREEPER_HEAD.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.DRAGON)
-                {
-                    state = Blocks.DRAGON_HEAD.defaultBlockState();
-                }
+                    case SkullBlock.Types.SKELETON -> Blocks.SKELETON_SKULL.defaultBlockState();
+                    case SkullBlock.Types.WITHER_SKELETON -> Blocks.WITHER_SKELETON_SKULL.defaultBlockState();
+                    case SkullBlock.Types.PLAYER -> Blocks.PLAYER_HEAD.defaultBlockState();
+                    case SkullBlock.Types.ZOMBIE -> Blocks.ZOMBIE_HEAD.defaultBlockState();
+                    case SkullBlock.Types.CREEPER -> Blocks.CREEPER_HEAD.defaultBlockState();
+                    case SkullBlock.Types.DRAGON -> Blocks.DRAGON_HEAD.defaultBlockState();
+                    default -> Blocks.SKELETON_SKULL.defaultBlockState();
+                };
             }
 
             state = state.setValue(BannerBlock.ROTATION, Mth.clamp(tag.getByteOrDefault("Rot", (byte) 0), 0, 15));
@@ -431,6 +430,7 @@ public class SchematicConversionFixers
         return state;
     };
 
+    // Flattening skull fixer
     public static final IStateFixer FIXER_SKULL_WALL = (reader, state, pos) -> {
         CompoundData tag = reader.getBlockEntityData(pos);
 
@@ -438,40 +438,33 @@ public class SchematicConversionFixers
         {
             int id = Mth.clamp(tag.getByteOrDefault("SkullType", (byte) 0), 0, 5);
 
-            // ;_; >_> <_<
-            if (id == 2) { id = 3; } else if (id == 3) { id = 2; }
-
             SkullBlock.Type typeOrig = ((AbstractSkullBlock) state.getBlock()).getType();
-            SkullBlock.Type typeFromData = SkullBlock.Types.values()[id];
+            // SkullBlock.Type enum has a different order now ;_; >_> <_< these are 1.12.2 ids
+            SkullBlock.Type typeFromData = switch (id)
+            {
+                case 0 -> SkullBlock.Types.SKELETON;
+                case 1 -> SkullBlock.Types.WITHER_SKELETON;
+                case 2 -> SkullBlock.Types.ZOMBIE;
+                case 3 -> SkullBlock.Types.PLAYER;
+                case 4 -> SkullBlock.Types.CREEPER;
+                case 5 -> SkullBlock.Types.DRAGON;
+                default -> SkullBlock.Types.SKELETON;
+            };
 
             if (typeOrig != typeFromData)
             {
                 Direction facing = state.getValue(WallSkullBlock.FACING);
 
-                if (typeFromData == SkullBlock.Types.SKELETON)
+                state = switch (typeFromData)
                 {
-                    state = Blocks.SKELETON_WALL_SKULL.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.WITHER_SKELETON)
-                {
-                    state = Blocks.WITHER_SKELETON_WALL_SKULL.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.PLAYER)
-                {
-                    state = Blocks.PLAYER_WALL_HEAD.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.ZOMBIE)
-                {
-                    state = Blocks.ZOMBIE_WALL_HEAD.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.CREEPER)
-                {
-                    state = Blocks.CREEPER_WALL_HEAD.defaultBlockState();
-                }
-                else if (typeFromData == SkullBlock.Types.DRAGON)
-                {
-                    state = Blocks.DRAGON_WALL_HEAD.defaultBlockState();
-                }
+                    case SkullBlock.Types.SKELETON -> Blocks.SKELETON_WALL_SKULL.defaultBlockState();
+                    case SkullBlock.Types.WITHER_SKELETON -> Blocks.WITHER_SKELETON_WALL_SKULL.defaultBlockState();
+                    case SkullBlock.Types.PLAYER -> Blocks.PLAYER_WALL_HEAD.defaultBlockState();
+                    case SkullBlock.Types.ZOMBIE -> Blocks.ZOMBIE_WALL_HEAD.defaultBlockState();
+                    case SkullBlock.Types.CREEPER -> Blocks.CREEPER_WALL_HEAD.defaultBlockState();
+                    case SkullBlock.Types.DRAGON -> Blocks.DRAGON_WALL_HEAD.defaultBlockState();
+                    default -> Blocks.SKELETON_WALL_SKULL.defaultBlockState();
+                };
 
                 state = state.setValue(WallSkullBlock.FACING, facing);
             }

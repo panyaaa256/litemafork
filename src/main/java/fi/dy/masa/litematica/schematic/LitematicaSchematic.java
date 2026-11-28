@@ -111,7 +111,6 @@ public class LitematicaSchematic
 	private final Map<String, BlockPos> subRegionPositions = new HashMap<>();
 	private final Map<String, BlockPos> subRegionSizes = new HashMap<>();
 	private final SchematicMetadata metadata = new SchematicMetadata();
-	private final SchematicConverter converter;
 	private int totalBlocksReadFromWorld;
 	@Nullable
 	private final Path schematicFile;
@@ -126,7 +125,6 @@ public class LitematicaSchematic
 		this.readFromNBT(nbt);
 		this.schematicFile = file;
 		this.schematicType = type;
-		this.converter = SchematicConverter.createForLitematica();
 	}
 
 	public LitematicaSchematic(Path file, CompoundData nbt, FileType type)
@@ -134,7 +132,6 @@ public class LitematicaSchematic
 		this.readFromData(nbt);
 		this.schematicFile = file;
 		this.schematicType = type;
-		this.converter = SchematicConverter.createForLitematica();
 	}
 
 	private LitematicaSchematic(@Nullable Path file)
@@ -146,7 +143,6 @@ public class LitematicaSchematic
 	{
 		this.schematicFile = file;
 		this.schematicType = schematicType;
-		this.converter = SchematicConverter.createForLitematica();
 	}
 
 	@Nullable
@@ -2559,7 +2555,7 @@ public class LitematicaSchematic
 		Vec3i size = DataTypeUtils.readBlockPosFromListTag(tag, "size");
 
 		if ((tag.containsList("palette", Constants.NBT.TAG_COMPOUND) ||
-				tag.containsList("palettes", Constants.NBT.TAG_COMPOUND)) &&
+			tag.containsList("palettes", Constants.NBT.TAG_LIST)) &&
 				tag.containsList("blocks", Constants.NBT.TAG_COMPOUND) &&
 				isSizeValid(size))
 		{
@@ -2603,7 +2599,7 @@ public class LitematicaSchematic
 //        Vec3i size = readSizeFromTagImpl(tag);
 		Vec3i size = DataTypeUtils.readBlockPosFromListTag(tag, "size");
 
-		if ((tag.containsList("palette", Constants.NBT.TAG_COMPOUND) || tag.containsList("palettes", Constants.NBT.TAG_COMPOUND)) &&
+		if ((tag.containsList("palette", Constants.NBT.TAG_COMPOUND) || tag.containsList("palettes", Constants.NBT.TAG_LIST)) &&
 			tag.containsList("blocks", Constants.NBT.TAG_COMPOUND) &&
 			isSizeValid(size))
 		{
@@ -2613,7 +2609,7 @@ public class LitematicaSchematic
 			{
 				paletteTag = tag.getList("palette");
 			}
-			else if (tag.containsList("palettes", Constants.NBT.TAG_COMPOUND))
+			else if (tag.containsList("palettes", Constants.NBT.TAG_LIST))
 			{
 				ListData palettes = tag.getList("palettes");
 				final int pSize = palettes.size();
@@ -2855,9 +2851,10 @@ public class LitematicaSchematic
 	{
 		List<BlockState> states = getStatesFromPaletteData(palette);
 
-		if (this.converter.createPostProcessStateFilter(states))
+		SchematicConverter converter = SchematicConverter.createForLitematica(this.metadata.minecraftDataVersion);
+		Map<BlockState, SchematicConversionFixers.IStateFixer> postProcessingFilter = converter.createPostProcessStateFilter(states);
+		if (postProcessingFilter.isEmpty() == false)
 		{
-			IdentityHashMap<BlockState, SchematicConversionFixers.IStateFixer> postProcessingFilter = this.converter.getPostProcessStateFilter();
 			SchematicConverter.postProcessBlocks(container, tiles, postProcessingFilter);
 		}
 	}
@@ -3563,7 +3560,7 @@ public class LitematicaSchematic
 
 //        CompoundData nbt = readNbtFromFile(file);
 		CompoundData nbt = readDataFromFile(file);
-		//System.out.printf("readMetadataAndVersionFromFile(): file [%s] // name [%s] // type [%s] // nbt? [%s]\n", file.getPath(), fileName, FileType.getString(type), nbt == null ? "null" : "has_tags");
+//		System.out.printf("readMetadataAndVersionFromFile(): file [%s] // name [%s] // type [%s] // nbt? [%s]\n", file.toAbsolutePath().toString(), fileName, FileType.getString(type), nbt == null ? "null" : "has_tags");
 
 		if (nbt != null)
 		{

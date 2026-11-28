@@ -390,7 +390,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
             }
 
             this.needsUpdate = true;
-            this.renderDistanceChunks = this.mc.options.renderDistance().get() + 2;
+	        this.renderDistanceChunks = Configs.Generic.LOAD_ENTIRE_SCHEMATICS.getBooleanValue() ? 256 : this.mc.options.renderDistance().get() + 2;
 
             if (this.chunkRendererDispatcher != null)
             {
@@ -442,9 +442,11 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
 //        LOGGER.warn("[WorldRenderer] setupTerrain()");
         this.profiler = profiler;
         profiler.push("setup_terrain");
+        final boolean loadAll = Configs.Generic.LOAD_ENTIRE_SCHEMATICS.getBooleanValue();
+        final int maxRange = loadAll ? 256 : this.mc.options.renderDistance().get() + 2;
 
         if (this.chunkRendererDispatcher == null ||
-            this.mc.options.renderDistance().get() + 2 != this.renderDistanceChunks)
+            maxRange != this.renderDistanceChunks)
         {
             this.loadRenderers(profiler);
         }
@@ -487,7 +489,7 @@ public class WorldRendererSchematic implements IWorldSchematicRenderer
         BlockPos viewPos = BlockPos.containing(cameraX, cameraY + (double) entity.getEyeHeight(), cameraZ);
         final int centerChunkX = (viewPos.getX() >> 4);
         final int centerChunkZ = (viewPos.getZ() >> 4);
-        final int renderDistance = this.mc.options.renderDistance().get() + 2;
+        final int renderDistance = loadAll ? maxRange : this.mc.options.renderDistance().get() + 2;
         ChunkPos viewChunk = ChunkPos.containing(viewPos);
 
         this.needsUpdate = this.needsUpdate || !this.chunksToUpdate.isEmpty() ||
